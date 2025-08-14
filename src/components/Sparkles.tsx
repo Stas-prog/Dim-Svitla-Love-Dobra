@@ -1,21 +1,27 @@
+// src/components/Sparkles.tsx
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 
-type Dot = { left: string; top: string; size: number; dur: number; delay: number; blur: number };
+type Dot = { left: string; top: string; size: string; dur: string; delay: string; blur: string };
 
 export default function Sparkles({ count = 28 }: { count?: number }) {
-    const dots = useMemo<Dot[]>(() => {
+    const [dots, setDots] = useState<Dot[] | null>(null);
+
+    useEffect(() => {
         const rnd = (min: number, max: number) => Math.random() * (max - min) + min;
-        return Array.from({ length: count }).map(() => ({
-            left: `${rnd(3, 97)}%`,
-            top: `${rnd(5, 85)}%`,
-            size: rnd(2, 4),
-            dur: rnd(5, 10),
-            delay: rnd(0, 6),
-            blur: rnd(0, 2.5),
-        }));
+        const make = (): Dot => ({
+            left: `${rnd(3, 97).toFixed(4)}%`,
+            top: `${rnd(5, 85).toFixed(4)}%`,
+            size: `${rnd(2, 4).toFixed(2)}px`,
+            dur: `${rnd(5, 10).toFixed(2)}s`,
+            delay: `${rnd(0, 6).toFixed(2)}s`,
+            blur: `${rnd(0, 2.5).toFixed(2)}px`,
+        });
+        setDots(Array.from({ length: count }, make));
     }, [count]);
+
+    if (!dots) return null; // на сервері нічого не рендериться, на клієнті з’явиться після mount
 
     return (
         <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -28,9 +34,9 @@ export default function Sparkles({ count = 28 }: { count?: number }) {
                         top: d.top,
                         width: d.size,
                         height: d.size,
-                        filter: `blur(${d.blur}px)`,
-                        animationDuration: `${d.dur}s`,
-                        animationDelay: `${d.delay}s`,
+                        filter: `blur(${d.blur})`,
+                        animationDuration: d.dur,
+                        animationDelay: d.delay,
                     }}
                 />
             ))}
