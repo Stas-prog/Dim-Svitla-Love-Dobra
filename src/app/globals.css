@@ -1,4 +1,44 @@
 @import "tailwindcss";
+/* @import "tailwindcss"; */
+
+html,
+body {
+  height: 100%;
+}
+
+:root {
+  --dawn-top: #FFD6B0;
+  /* персикове світло */
+  --dawn-mid: #FFEEC6;
+  /* м’яке золото */
+  --dawn-low: #CFE7FF;
+  /* ранкове небо */
+}
+
+
+/* Основний світанковий градієнт */
+.dawn-gradient {
+  background-image:
+    radial-gradient(1200px 600px at 50% -10%, rgba(255, 238, 198, 0.6), transparent 60%),
+    linear-gradient(to bottom, var(--dawn-top) 0%, var(--dawn-mid) 38%, var(--dawn-low) 100%);
+
+}
+
+/* Ледь помітний «повітряний» блиск */
+.dawn-glow {
+  background: radial-gradient(700px 260px at 50% 0%, rgba(255, 255, 255, 0.35), transparent 55%);
+  pointer-events: none;
+}
+
+/* Повага до користувачів з обмеженням анімацій */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 
 
 

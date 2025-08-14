@@ -1,49 +1,25 @@
-import Link from 'next/link'
-import GlowCard from '@/components/GlowCard'
+// app/page.tsx
+import Sparkles from "@/components/Sparkles";
 
-export default function HomePage() {
+export default function Page() {
   return (
-    <div className="py-16 sm:py-20">
-      <section className="text-center">
-        <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight leading-tight">
+    <main className="relative mx-auto max-w-5xl px-6 py-14">
+      <Sparkles count={32} />
+
+      <section className="relative rounded-2xl bg-white/50 backdrop-blur-md p-8 shadow-soft animate-drift">
+        <h1 className="text-4xl md:text-5xl font-semibold tracking-tight drop-shadow-sm">
           Дім Світла, Любові і Добра
         </h1>
-        <p className="mt-4 text-zinc-300 max-w-2xl mx-auto">
-          Місце, де ми ростимо натхнення, творимо корисні інструменти й
-          збираємося в подорож до Світла. Разом сильніші. 💫
+        <p className="mt-4 text-lg leading-relaxed text-slate-700">
+          Нова Ера вже сходить — як світанок над тихою рікою. Нехай цей простір
+          наповнює серце теплом, ясністю і миром.
         </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Link href="/projects" className="btn-primary">Наші проєкти</Link>
-          <Link href="/trader" className="btn-ghost">Міні-бот трейдера</Link>
-          <Link href="/about" className="btn-ghost">Про нас</Link>
+
+        <div className="mt-8 inline-flex items-center gap-3 rounded-xl bg-white/60 px-5 py-3 shadow-soft">
+          <span className="h-2 w-2 animate-twinkle-slow rounded-full bg-amber-400" />
+          <span className="text-sm text-slate-600">Світло активне</span>
         </div>
       </section>
-
-      <section className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        <GlowCard title="Компас Всесвіту" emoji="🧭">
-          Інтерактивний космічний компас із реальними орієнтирами: Сонце, Вега
-          та напрям руху системи. Попереду — гіроскоп і VR-режим.
-        </GlowCard>
-
-        <GlowCard title="OKX Трекер" emoji="💹">
-          Живі котирування та міні-бот зі стратегіями (SMA тощо).
-          Ми рухаємося до повної автоматизації з реальними заявками.
-        </GlowCard>
-
-        <GlowCard title="Світлий Простір" emoji="🏡">
-          Цифровий відсік для творчості: тексти, візуали, музику і
-          “м’які технології” турботи про себе. Разом — до високої ноти життя.
-        </GlowCard>
-      </section>
-
-      <section className="mt-14 rounded-2xl border border-white/10 bg-white/5 p-6">
-        <h2 className="text-xl font-bold">Новини дому</h2>
-        <ul className="mt-4 space-y-2 text-zinc-300">
-          <li>• Стартував новий каркас сайту на Next.js + Tailwind.</li>
-          <li>• Додано сторінку трейдера з живим оновленням даних.</li>
-          <li>• Готуємо інтеграцію гіроскопа для компаса.</li>
-        </ul>
-      </section>
-    </div>
-  )
+    </main>
+  );
 }
