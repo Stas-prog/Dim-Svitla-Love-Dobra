@@ -1,4 +1,3 @@
-// src/components/Sparkles.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -21,7 +20,7 @@ export default function Sparkles({ count = 28 }: { count?: number }) {
         setDots(Array.from({ length: count }, make));
     }, [count]);
 
-    if (!dots) return null; // на сервері нічого не рендериться, на клієнті з’явиться після mount
+    if (!dots) return null;
 
     return (
         <div aria-hidden className="pointer-events-none absolute inset-0">
