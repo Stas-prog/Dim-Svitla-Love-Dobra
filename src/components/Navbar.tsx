@@ -10,6 +10,7 @@ export default function Navbar() {
                 <a href="#mission" className="hover:text-amber-600 transition">Місія</a>
                 <a href="#contact" className="hover:text-amber-600 transition">Контакти</a>
                 <a href="/homepage" className="hover:text-amber-600 transition">Вітальня</a>
+                <a href="/observer" className="hover:text-amber-600 transition">Спостерігач</a>
             </nav>
         </header>
     );

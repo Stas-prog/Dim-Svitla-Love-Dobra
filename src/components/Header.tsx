@@ -10,6 +10,7 @@ const nav = [
     { href: '/about', label: 'Про нас' },
     { href: '/contact', label: 'Контакти' },
     { href: '/homepage', label: 'Вітальня' },
+    { href: '/observer', label: 'Спостерігач' },
 ]
 
 export default function Header() {
