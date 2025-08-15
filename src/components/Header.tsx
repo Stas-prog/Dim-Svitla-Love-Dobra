@@ -9,6 +9,7 @@ const nav = [
     { href: '/trader', label: 'Трейдер' },
     { href: '/about', label: 'Про нас' },
     { href: '/contact', label: 'Контакти' },
+    { href: '/homepage', label: 'Вітальня' },
 ]
 
 export default function Header() {
