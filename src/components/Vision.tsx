@@ -239,24 +239,18 @@ export default function Vision() {
 
             <div className="mt-3 flex flex-wrap gap-3">
                 <button
-                    onClick={startLocalCamera}
-                    className="rounded bg-emerald-600 text-white px-3 py-1 text-sm"
-                >
+                    onClick={startLocalCamera} className="rounded bg-emerald-600 text-white px-3 py-1 text-sm">
                     🎥 Start camera
                 </button>
                 <button
-                    onClick={startPeer}
-                    className="rounded bg-blue-600 text-white px-3 py-1 text-sm"
-                >
+                    onClick={startPeer} className="rounded bg-blue-600 text-white px-3 py-1 text-sm">
                     🔌 Start WebRTC ({isHost ? "host" : "viewer"})
                 </button>
                 <button
-                    onClick={takeSnapshotAndSave}
-                    className="rounded bg-amber-600 text-white px-3 py-1 text-sm"
-                >
+                    onClick={takeSnapshotAndSave} className="rounded bg-slate-700 text-white px-3 py-1 text-sm">
                     📸 Зробити кадр (і зберегти в Mongo)
                 </button>
-                <button onClick={stopAll} className="rounded bg-slate-700 text-white px-3 py-1 text-sm">
+                <button onClick={stopAll} className="rounded bg-amber-600 text-white px-3 py-1 text-sm">
                     ⏹ Stop
                 </button>
             </div>
