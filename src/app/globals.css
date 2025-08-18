@@ -30,6 +30,46 @@ body {
   pointer-events: none;
 }
 
+.vision-scope .btn {
+  all: unset;
+}
+
+.vision-scope .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem 1rem;
+  border-radius: .5rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vision-scope .btn-blue {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+
+.vision-scope .btn-emerald {
+  background: #059669 !important;
+  color: #fff !important;
+}
+
+.vision-scope .btn-indigo {
+  background: #4f46e5 !important;
+  color: #fff !important;
+}
+
+.vision-scope .btn-rose {
+  background: #e11d48 !important;
+  color: #fff !important;
+}
+
+.vision-scope .panel {
+  background: rgba(15, 23, 42, .8) !important;
+  color: #fff !important;
+}
+
+
 /* Повага до користувачів з обмеженням анімацій */
 @media (prefers-reduced-motion: reduce) {
   * {

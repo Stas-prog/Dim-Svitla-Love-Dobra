@@ -4,57 +4,61 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
-import type { Filter } from "mongodb";
 
-type RoomDoc = {
-    _id: string;
-    offer?: any;
-    answer?: any;
-    hostCandidates?: any[];
-    viewerCandidates?: any[];
+type CandDoc = {
+    _id?: string;
+    roomId: string;
+    to: string;    // одержувач
+    from: string;  // відправник
+    candidate: RTCIceCandidateInit;
     createdAt: string;
-    updatedAt: string;
 };
 
-type FromRole = "host" | "viewer";
+// in-memory fallback (черга)
+const mem = {
+    candidates: [] as CandDoc[],
+};
 
-export async function GET(req: Request) {
-    const url = new URL(req.url);
-    const roomId = url.searchParams.get("roomId");
-    if (!roomId) return NextResponse.json({ error: "roomId required" }, { status: 400 });
-
-    const db = await getDb();
-    const col = db.collection<RoomDoc>("webrtc_rooms");
-    const doc = await col.findOne(
-        { _id: roomId } as Filter<RoomDoc>,
-        { projection: { hostCandidates: 1, viewerCandidates: 1, updatedAt: 1 } }
-    );
-    return NextResponse.json({
-        hostCandidates: doc?.hostCandidates ?? [],
-        viewerCandidates: doc?.viewerCandidates ?? [],
-        updatedAt: doc?.updatedAt ?? null,
-    });
+async function tryDb<T>(fn: () => Promise<T>): Promise<T | null> {
+    try { return await fn(); } catch { return null; }
 }
 
 export async function POST(req: Request) {
-    const { roomId, from, candidate } = (await req.json()) as {
-        roomId: string;
-        from: FromRole;
-        candidate: any;
-    };
-    if (!roomId || (from !== "host" && from !== "viewer") || !candidate) {
-        return NextResponse.json({ error: "roomId, from, candidate required" }, { status: 400 });
+    const body = (await req.json()) as CandDoc;
+    const doc: CandDoc = { ...body, createdAt: new Date().toISOString() };
+
+    const ok = await tryDb(async () => {
+        const db = await getDb();
+        await db.collection<CandDoc>("webrtc_candidates").insertOne(doc);
+        return true;
+    });
+
+    if (!ok) {
+        mem.candidates.push(doc);
     }
 
-    const db = await getDb();
-    const col = db.collection<RoomDoc>("webrtc_rooms");
-    const field = from === "host" ? "hostCandidates" : "viewerCandidates";
+    return NextResponse.json({ ok: true, mode: ok ? "mongo" : "memory" });
+}
 
-    await col.updateOne(
-        { _id: roomId } as Filter<RoomDoc>,
-        { $push: { [field]: candidate }, $set: { updatedAt: new Date().toISOString() } },
-        { upsert: true }
-    );
+// Отримати та ВИДАЛИТИ всі кандидати для (roomId,to)
+export async function GET(req: Request) {
+    const url = new URL(req.url);
+    const roomId = url.searchParams.get("roomId") || "";
+    const to = url.searchParams.get("to") || "";
 
-    return NextResponse.json({ ok: true });
+    const got = await tryDb(async () => {
+        const db = await getDb();
+        const col = db.collection<CandDoc>("webrtc_candidates");
+        const items = await col.find({ roomId, to }).sort({ createdAt: 1 }).toArray();
+        if (items.length) {
+            await col.deleteMany({ roomId, to });
+        }
+        return items;
+    });
+
+    if (got) return NextResponse.json(got);
+
+    const list = mem.candidates.filter(c => c.roomId === roomId && c.to === to);
+    mem.candidates = mem.candidates.filter(c => !(c.roomId === roomId && c.to === to));
+    return NextResponse.json(list);
 }
