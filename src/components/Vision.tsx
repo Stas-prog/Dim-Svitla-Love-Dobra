@@ -11,29 +11,27 @@ type AnswerPayload = { type: 'answer'; sdp: any };
 type IcePayload = { type: 'candidate'; candidate: RTCIceCandidateInit };
 
 function asSignal(x: any): SignalData {
-    try {
-        if (!x) return x;
-        if (typeof x === 'string') return JSON.parse(x);
-        return x;
-    } catch { return x; }
+    try { return typeof x === 'string' ? JSON.parse(x) : x; } catch { return x; }
 }
 
 export default function Vision({
     initialMode,
     initialRoomId,
 }: { initialMode?: Mode; initialRoomId?: string }) {
-    // -------------------- state --------------------
     const [mode, setMode] = useState<Mode>(initialMode || 'viewer');
     const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
     const [err, setErr] = useState<string | null>(null);
 
-    const [roomId, setRoomId] = useState<string>(
-        initialRoomId || (typeof window !== 'undefined' ? (new URLSearchParams(location.search).get('roomId') || '') : '')
-    );
+    const [roomId, setRoomId] = useState<string>(() => {
+        if (initialRoomId) return initialRoomId;
+        if (typeof window !== 'undefined') {
+            return new URLSearchParams(location.search).get('roomId') || '';
+        }
+        return '';
+    });
 
     const isHost = mode === 'host';
 
-    // -------------------- refs --------------------
     const clientIdRef = useRef<string>('');
     const peerRef = useRef<Peer.Instance | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -41,21 +39,20 @@ export default function Vision({
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
-    // захист від дублювань
-    const offerAppliedRef = useRef<boolean>(false);
-    const answerAppliedRef = useRef<boolean>(false);
+    const offerAppliedRef = useRef(false);
+    const answerAppliedRef = useRef(false);
     const iceSeenRef = useRef<Set<string>>(new Set());
 
-    // polling timers
     const pollOfferTimer = useRef<number | null>(null);
     const pollAnswerTimer = useRef<number | null>(null);
     const pollIceTimer = useRef<number | null>(null);
 
-    // -------------------- helpers --------------------
+    const startingRef = useRef(false); // анти-даблклік
+
     function clearTimers() {
-        if (pollOfferTimer.current) { window.clearInterval(pollOfferTimer.current); pollOfferTimer.current = null; }
-        if (pollAnswerTimer.current) { window.clearInterval(pollAnswerTimer.current); pollAnswerTimer.current = null; }
-        if (pollIceTimer.current) { window.clearInterval(pollIceTimer.current); pollIceTimer.current = null; }
+        if (pollOfferTimer.current) { clearInterval(pollOfferTimer.current); pollOfferTimer.current = null; }
+        if (pollAnswerTimer.current) { clearInterval(pollAnswerTimer.current); pollAnswerTimer.current = null; }
+        if (pollIceTimer.current) { clearInterval(pollIceTimer.current); pollIceTimer.current = null; }
     }
 
     function destroyPeer() {
@@ -67,9 +64,7 @@ export default function Vision({
     }
 
     function stopMedia() {
-        try {
-            streamRef.current?.getTracks().forEach(t => t.stop());
-        } catch { }
+        try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch { }
         streamRef.current = null;
         if (localVideoRef.current) localVideoRef.current.srcObject = null;
         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -81,40 +76,63 @@ export default function Vision({
         stopMedia();
         setStatus('idle');
         setErr(null);
+        startingRef.current = false;
     }
 
-    // -------------------- start / connect --------------------
-    async function start() {
-        try {
-            if (!roomId) {
-                // автогенерація кімнати для зручності
-                setRoomId(crypto.randomUUID());
-            }
-            setStatus('connecting');
-            setErr(null);
+    // cleanup тільки на unmount
+    useEffect(() => {
+        return () => resetAll();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-            // створюємо peer
+    useEffect(() => {
+        clientIdRef.current = getClientId();
+    }, []);
+
+    async function start() {
+        if (startingRef.current || status === 'connecting') return;
+        startingRef.current = true;
+        setErr(null);
+        setStatus('connecting');
+
+        try {
+            // використовуємо локальний rid, НЕ міняючи стейт під час старту
+            const rid = (roomId && roomId.trim()) ? roomId.trim() : crypto.randomUUID();
+
             const peer = new Peer({
                 initiator: isHost,
-                trickle: true, // даємо ICE йти потоком
+                trickle: true,
             });
             peerRef.current = peer;
 
-            // медіа: лише host запитує камеру та віддає треки
             if (isHost) {
+                // хост вмикає камеру та додає треки
+                let media: MediaStream | null = null;
                 try {
-                    const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                    streamRef.current = media;
-                    if (localVideoRef.current) localVideoRef.current.srcObject = media;
-                    media.getTracks().forEach(t => peer.addTrack(t, media));
+                    media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 } catch (e: any) {
                     console.error('getUserMedia error', e);
                     setErr(e?.message || 'getUserMedia failed');
                     setStatus('error');
+                    startingRef.current = false;
                     return;
                 }
+                // якщо під час очікування щось зламали — відступаємо
+                if (peerRef.current !== peer || peer.destroyed) {
+                    media.getTracks().forEach(t => t.stop());
+                    startingRef.current = false;
+                    return;
+                }
+                streamRef.current = media;
+                if (localVideoRef.current) localVideoRef.current.srcObject = media;
+                // захист від destroy
+                if (!peer.destroyed) {
+                    media.getTracks().forEach(t => {
+                        try { peer.addTrack(t, media!); } catch { }
+                    });
+                }
             } else {
-                // viewer слухає remote stream
+                // viewer слухає віддалений стрім
                 peer.on('track', (_track, remoteStream) => {
                     const el = remoteVideoRef.current;
                     if (!el) return;
@@ -123,50 +141,45 @@ export default function Vision({
                 });
             }
 
-            // події peer
             peer.on('connect', () => {
                 console.log('[peer] connected');
                 setStatus('connected');
+                startingRef.current = false;
             });
             peer.on('error', (e) => {
                 console.error('[peer] error', e);
                 setErr(e.message || 'peer error');
                 setStatus('error');
+                startingRef.current = false;
             });
             peer.on('close', () => {
                 console.log('[peer] close');
                 setStatus('idle');
+                startingRef.current = false;
             });
 
-            // signal → POST до нашого API
+            // вихідні сигнали -> API
             peer.on('signal', async (data: SignalData) => {
                 try {
-                    // ОФФЕР створює тільки host
                     if ((data as any).type === 'offer') {
                         const payload: OfferPayload = { type: 'offer', sdp: data };
                         const res = await fetch('/api/webrtc/offer', {
                             method: 'POST',
                             headers: { 'content-type': 'application/json' },
-                            body: JSON.stringify({ roomId, offer: payload, from: clientIdRef.current }),
+                            body: JSON.stringify({ roomId: rid, offer: payload, from: clientIdRef.current }),
                             cache: 'no-store',
                         });
                         if (!res.ok) throw new Error('offer save failed');
-                        console.log('[signal] offer saved');
-                    }
-                    // АНСЕР створює тільки viewer
-                    else if ((data as any).type === 'answer') {
+                    } else if ((data as any).type === 'answer') {
                         const payload: AnswerPayload = { type: 'answer', sdp: data };
                         const res = await fetch('/api/webrtc/answer', {
                             method: 'POST',
                             headers: { 'content-type': 'application/json' },
-                            body: JSON.stringify({ roomId, answer: payload, from: clientIdRef.current }),
+                            body: JSON.stringify({ roomId: rid, answer: payload, from: clientIdRef.current }),
                             cache: 'no-store',
                         });
                         if (!res.ok) throw new Error('answer save failed');
-                        console.log('[signal] answer saved');
-                    }
-                    // ICE
-                    else if ((data as any).candidate) {
+                    } else if ((data as any).candidate) {
                         const candInit = (data as any).candidate as RTCIceCandidateInit;
                         const key = `${candInit.sdpMid || ''}|${candInit.sdpMLineIndex || ''}|${candInit.candidate || ''}`;
                         if (iceSeenRef.current.has(key)) return;
@@ -176,11 +189,10 @@ export default function Vision({
                         const res = await fetch('/api/webrtc/candidate', {
                             method: 'POST',
                             headers: { 'content-type': 'application/json' },
-                            body: JSON.stringify({ roomId, ice: payload, from: clientIdRef.current }),
+                            body: JSON.stringify({ roomId: rid, ice: payload, from: clientIdRef.current }),
                             cache: 'no-store',
                         });
                         if (!res.ok) throw new Error('ice save failed');
-                        // console.log('[signal] ice saved');
                     }
                 } catch (e: any) {
                     console.error('[signal POST] error', e);
@@ -188,22 +200,21 @@ export default function Vision({
                 }
             });
 
-            // -------------------- polling --------------------
+            // ---- polling ----
             clearTimers();
 
-            // viewer → чекає offer
             if (!isHost) {
+                // viewer: чекає offer
                 const pollOffer = async () => {
                     try {
-                        if (offerAppliedRef.current) return; // вже застосували
-                        const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(roomId)}`, { cache: 'no-store' });
+                        if (offerAppliedRef.current) return;
+                        const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(rid)}`, { cache: 'no-store' });
                         if (!r.ok) return;
                         const doc = await r.json();
                         if (doc?.offer?.sdp) {
                             const sig = asSignal(doc.offer.sdp);
-                            if (sig?.type === 'offer' && !offerAppliedRef.current) {
-                                console.log('[viewer] applying offer…');
-                                peer.signal(sig); // <— ВАЖЛИВО: один раз
+                            if (sig?.type === 'offer' && !offerAppliedRef.current && peerRef.current && !peerRef.current.destroyed) {
+                                peerRef.current.signal(sig);
                                 offerAppliedRef.current = true;
                             }
                         }
@@ -213,19 +224,18 @@ export default function Vision({
                 pollOfferTimer.current = window.setInterval(pollOffer, 1200) as unknown as number;
             }
 
-            // host → чекає answer
             if (isHost) {
+                // host: чекає answer
                 const pollAnswer = async () => {
                     try {
                         if (answerAppliedRef.current) return;
-                        const r = await fetch(`/api/webrtc/answer?roomId=${encodeURIComponent(roomId)}&to=${encodeURIComponent(clientIdRef.current)}`, { cache: 'no-store' });
+                        const r = await fetch(`/api/webrtc/answer?roomId=${encodeURIComponent(rid)}&to=${encodeURIComponent(clientIdRef.current)}`, { cache: 'no-store' });
                         if (!r.ok) return;
                         const doc = await r.json();
                         if (doc?.answer?.sdp) {
                             const sig = asSignal(doc.answer.sdp);
-                            if (sig?.type === 'answer' && !answerAppliedRef.current) {
-                                console.log('[host] applying answer…');
-                                peer.signal(sig); // <— ВАЖЛИВО: один раз
+                            if (sig?.type === 'answer' && !answerAppliedRef.current && peerRef.current && !peerRef.current.destroyed) {
+                                peerRef.current.signal(sig);
                                 answerAppliedRef.current = true;
                             }
                         }
@@ -235,36 +245,39 @@ export default function Vision({
                 pollAnswerTimer.current = window.setInterval(pollAnswer, 1200) as unknown as number;
             }
 
-            // обидва отримують ICE від контрагента
             const pollIce = async () => {
                 try {
-                    const r = await fetch(`/api/webrtc/candidate?roomId=${encodeURIComponent(roomId)}&to=${encodeURIComponent(clientIdRef.current)}`, { cache: 'no-store' });
+                    const r = await fetch(`/api/webrtc/candidate?roomId=${encodeURIComponent(rid)}&to=${encodeURIComponent(clientIdRef.current)}`, { cache: 'no-store' });
                     if (!r.ok) return;
                     const list = await r.json();
                     if (!Array.isArray(list)) return;
                     for (const it of list) {
-                        if (!it?.ice?.candidate) continue;
-                        const c: RTCIceCandidateInit = it.ice.candidate;
-
-                        // дедуп по ключу
+                        const c: RTCIceCandidateInit | undefined = it?.ice?.candidate;
+                        if (!c) continue;
                         const key = `${c.sdpMid || ''}|${c.sdpMLineIndex || ''}|${c.candidate || ''}`;
                         if (iceSeenRef.current.has(key)) continue;
                         iceSeenRef.current.add(key);
 
-                        // ⬇️ ГОЛОВНЕ ВИПРАВЛЕННЯ: конвертуємо Init → реальний RTCIceCandidate
-                        const rtc = new RTCIceCandidate(c);
-                        const sig = { type: 'candidate', candidate: rtc } as unknown as SignalData;
-                        peer.signal(sig);
+                        if (peerRef.current && !peerRef.current.destroyed) {
+                            const rtc = new RTCIceCandidate(c);
+                            const sig = { type: 'candidate', candidate: rtc } as unknown as SignalData;
+                            peerRef.current.signal(sig);
+                        }
                     }
                 } catch { }
             };
             pollIce();
             pollIceTimer.current = window.setInterval(pollIce, 1000) as unknown as number;
 
+            // тільки після успішного запуску — синхронізуємо roomId у стейт/URL (без тригеру destroy)
+            if (!roomId) setRoomId(rid);
+
         } catch (e: any) {
             console.error('start error', e);
             setErr(e.message || 'start error');
             setStatus('error');
+        } finally {
+            // залишаємо в true поки не зʼєднаємось/помилка подіями peer; тут не скидаємо насильно
         }
     }
 
@@ -272,7 +285,6 @@ export default function Vision({
         resetAll();
     }
 
-    // -------------------- capture to Mongo --------------------
     async function captureToMongo() {
         try {
             const video = isHost ? localVideoRef.current : remoteVideoRef.current;
@@ -290,7 +302,7 @@ export default function Vision({
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
-                    roomId,
+                    roomId: roomId || 'no-room',
                     by: clientIdRef.current,
                     dataUrl,
                     createdAt: new Date().toISOString(),
@@ -303,26 +315,12 @@ export default function Vision({
         }
     }
 
-    // -------------------- effects --------------------
-    useEffect(() => {
-        clientIdRef.current = getClientId();
-    }, []);
-
-    // при зміні roomId/mode — чистимо старе
-    useEffect(() => {
-        return () => {
-            resetAll();
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode, roomId]);
-
-    // -------------------- UI --------------------
-    const subtitle = useMemo(() => isHost ? 'host' : 'viewer', [isHost]);
+    const subtitle = useMemo(() => (isHost ? 'host' : 'viewer'), [isHost]);
 
     return (
-        <div className="rounded-2xl bg-white/80 p-4 shadow-soft text-slate-900">
+        <div className="rounded-2xl bg-white/80 p-4 shadow-soft text-slate-900 card">
             <div className="flex items-center gap-2 mb-3">
-                <span className="px-2 py-1 rounded bg-slate-100 text-xs">{subtitle}</span>
+                <span className="px-2 py-1 rounded bg-slate-100 text-xs text-slate-950">{subtitle}</span>
                 <span className={`px-2 py-1 rounded text-xs ${status === 'connected' ? 'bg-emerald-100 text-emerald-700' : status === 'error' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>
                     status: {status}
                 </span>
@@ -331,12 +329,15 @@ export default function Vision({
                     <button
                         className="px-3 py-1 rounded bg-slate-900 text-white text-sm"
                         onClick={() => setMode(m => (m === 'host' ? 'viewer' : 'host'))}
+                        disabled={status === 'connecting'}
+                        title="Перемкнути режим"
                     >
                         Режим: {isHost ? 'Хост' : 'Глядач'}
                     </button>
                     <button
-                        className="px-3 py-1 rounded bg-indigo-600 text-white text-sm"
+                        className="px-3 py-1 rounded bg-indigo-600 text-white text-sm disabled:opacity-50"
                         onClick={start}
+                        disabled={status === 'connecting'}
                     >
                         Підключити
                     </button>
@@ -365,7 +366,7 @@ export default function Vision({
                     Посилання для глядача
                 </a>
                 <button
-                    className="ml-auto px-3 py-1 rounded bg-amber-500 text-white text-sm"
+                    className="ml-auto px-3 py-1 rounded bg-amber-500 text-white text-sm disabled:opacity-50"
                     onClick={captureToMongo}
                     disabled={status !== 'connected'}
                     title="Зберегти кадр у Mongo"
