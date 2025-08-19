@@ -1,298 +1,287 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Peer, { Instance, SignalData } from 'simple-peer';
-import { getClientId } from '@/lib/clientId';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import SimplePeer, { SignalData } from "simple-peer";
+
+type UIMode = "host" | "viewer";
 
 type Props = {
-    roomId?: string;
-    initialMode?: 'host' | 'viewer';
+    initialMode?: UIMode;
+    initialRoomId?: string;
 };
 
-type IcePayload = { type: 'candidate'; candidate: RTCIceCandidateInit };
-type OfferPayload = { type: 'offer'; sdp: any };
-type AnswerPayload = { type: 'answer'; sdp: any };
+type OfferPayload = SignalData;   // { type:'offer', sdp:... }
+type AnswerPayload = SignalData;  // { type:'answer', sdp:... }
+type IcePayload = { type: "candidate"; candidate: RTCIceCandidateInit };
 
-export default function Vision({ roomId, initialMode = 'viewer' }: Props) {
-    const [mode, setMode] = useState<'host' | 'viewer'>(initialMode);
-    const [status, setStatus] = useState<'idle' | 'ready' | 'connecting' | 'connected' | 'error'>('idle');
+const POLL_MS = 1200;
+
+export default function Vision({ initialMode, initialRoomId }: Props) {
+    // --- URL fallbacks ---
+    const search = typeof window !== "undefined" ? window.location.search : "";
+    const params = useMemo(() => new URLSearchParams(search), [search]);
+
+    const startMode: UIMode =
+        (initialMode ??
+            ((params.get("mode") ?? "viewer") === "host" ? "host" : "viewer")) as UIMode;
+
+    const startRoomId: string =
+        initialRoomId ??
+        params.get("roomId") ??
+        (typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : String(Date.now()));
+
+    // --- state ---
+    const [mode, setMode] = useState<UIMode>(startMode);
+    const [roomId, setRoomId] = useState<string>(startRoomId);
+    const [status, setStatus] = useState("idle");
     const [err, setErr] = useState<string | null>(null);
-    const [snapBusy, setSnapBusy] = useState(false);
 
+    // --- refs ---
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-
-    const peerRef = useRef<Instance | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
-    const clientIdRef = useRef<string>('client');
+    const peerRef = useRef<SimplePeer.Instance | null>(null);
+    const myIdRef = useRef<string>(
+        typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : String(Date.now())
+    );
+    const otherIdRef = useRef<string | null>(null); // партнер по кімнаті
 
-    const isHost = mode === 'host';
+    // helpers
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    // контрастні бейджі
-    const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode; tone?: 'slate' | 'emerald' | 'rose' | 'indigo' }) => {
-        const map: Record<string, string> = {
-            slate: 'bg-slate-100 text-slate-900',
-            emerald: 'bg-emerald-100 text-emerald-900',
-            rose: 'bg-rose-100 text-rose-900',
-            indigo: 'bg-indigo-100 text-indigo-900',
-        };
-        return <span className={`px-2 py-1 rounded text-xs font-semibold ${map[tone]}`}>{children}</span>;
-    };
+    async function pollJSON<T = any>(url: string): Promise<T | null> {
+        try {
+            const r = await fetch(url, { cache: "no-store" });
+            if (!r.ok) return null;
+            const j = await r.json();
+            if (j && Object.keys(j).length) return j as T;
+            return null;
+        } catch {
+            return null;
+        }
+    }
 
     useEffect(() => {
-        clientIdRef.current = getClientId();
-        setStatus('ready');
-    }, []);
-
-    async function createPeer() {
+        let stop = false;
+        const isHost = mode === "host";
+        setStatus("starting");
         setErr(null);
-        setStatus('connecting');
 
-        if (peerRef.current) {
-            try { peerRef.current.destroy(); } catch { }
-            peerRef.current = null;
-        }
-
-        const peer = new Peer({
-            initiator: isHost,
-            trickle: true, // будемо надсилати ICE одразу
-        });
-
+        const peer = new SimplePeer({ initiator: isHost, trickle: true });
         peerRef.current = peer;
 
-        peer.on('signal', async (data: SignalData) => {
+        // HOST: getUserMedia + addTrack
+        if (isHost) {
+            (async () => {
+                try {
+                    const media = await navigator.mediaDevices.getUserMedia({
+                        video: true,
+                        audio: false,
+                    });
+                    if (stop) return;
+                    streamRef.current = media;
+                    if (localVideoRef.current) localVideoRef.current.srcObject = media;
+                    media.getTracks().forEach((t) => peer.addTrack(t, media));
+                } catch (e: any) {
+                    if (!stop) setErr(e.message || "getUserMedia failed");
+                }
+            })();
+        } else {
+            // VIEWER: приймає remote stream
+            peer.on("track", (_track, stream) => {
+                const el = remoteVideoRef.current;
+                if (!el) return;
+                el.srcObject = stream;
+                el.play().catch(() => { });
+            });
+        }
+
+        // Всі вихідні сигнали сюди
+        peer.on("signal", async (data: SignalData) => {
             try {
-                if ((data as any).type === 'offer') {
-                    // HOST -> зберегти offer
-                    const res = await fetch('/api/webrtc/offer', {
-                        method: 'POST',
-                        headers: { 'content-type': 'application/json' },
+                if ((data as any).type === "offer") {
+                    // HOST зберігає OFFЕР
+                    await fetch("/api/webrtc/offer", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
                         body: JSON.stringify({
                             roomId,
                             offer: data as OfferPayload,
-                            from: clientIdRef.current,
+                            from: myIdRef.current,
                         }),
                     });
-                    if (!res.ok) throw new Error('offer save failed');
-                } else if ((data as any).type === 'answer') {
-                    // VIEWER -> зберегти answer
-                    const res = await fetch('/api/webrtc/answer', {
-                        method: 'POST',
-                        headers: { 'content-type': 'application/json' },
+                } else if ((data as any).type === "answer") {
+                    // VIEWER зберігає ANSWER (to = hostId)
+                    await fetch("/api/webrtc/answer", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
                         body: JSON.stringify({
                             roomId,
                             answer: data as AnswerPayload,
-                            from: clientIdRef.current,
+                            from: myIdRef.current,
+                            to: otherIdRef.current, // відомий після читання offer
                         }),
                     });
-                    if (!res.ok) throw new Error('answer save failed');
                 } else if ((data as any).candidate) {
-                    // ICE
-                    const payload: IcePayload = { type: 'candidate', candidate: (data as any).candidate };
-                    const res = await fetch('/api/webrtc/candidate', {
-                        method: 'POST',
-                        headers: { 'content-type': 'application/json' },
+                    // ICE двосторонній: to — якщо вже знаємо партнера
+                    await fetch("/api/webrtc/candidate", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
                         body: JSON.stringify({
                             roomId,
-                            ice: payload,
-                            from: clientIdRef.current,
+                            ice: { type: "candidate", candidate: (data as any).candidate } as IcePayload,
+                            from: myIdRef.current,
+                            to: otherIdRef.current ?? undefined,
                         }),
                     });
-                    if (!res.ok) throw new Error('ice save failed');
                 }
             } catch (e: any) {
-                console.error('signal POST error', e);
-                setErr(e.message || 'signal error');
+                console.error("signal POST error", e);
+                setErr(e.message || "signal error");
             }
         });
 
-        peer.on('connect', () => setStatus('connected'));
-        peer.on('error', (e) => { setErr(e.message); setStatus('error'); });
-        peer.on('close', () => setStatus('idle'));
-
-        // медіа
-        if (isHost) {
-            try {
-                const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                streamRef.current = media;
-                localVideoRef.current && (localVideoRef.current.srcObject = media);
-                media.getTracks().forEach((t) => peer.addTrack(t, media));
-            } catch (e: any) {
-                setErr(e.message || 'getUserMedia failed');
-            }
-        } else {
-            // viewer слухає remote track
-            peer.on('track', (track, stream) => {
-                if (remoteVideoRef.current) {
-                    remoteVideoRef.current.srcObject = stream;
-                }
-            });
-        }
-
-        // Пулл сигналів із БД
-        pollSignals(peer).catch(console.error);
-    }
-
-    async function pollSignals(peer: Instance) {
-        // простий луп: host чекає answer/ice, viewer — offer/ice
-        // (ми можемо робити це інтервально, тут — швидкий цикл з паузою)
-        let stop = false;
-        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-        while (!stop && peerRef.current === peer) {
-            try {
-                if (isHost) {
-                    // хост читає answer + ice від глядача
-                    const r = await fetch(`/api/webrtc/answer?roomId=${roomId}&to=${clientIdRef.current}`, { cache: 'no-store' });
-                    if (r.ok) {
-                        const { answer, ice }: { answer?: AnswerPayload; ice?: IcePayload[] } = await r.json();
-                        if (answer) peer.signal(answer as SignalData);
-                        if (ice?.length) ice.forEach((i) => peer.signal(i as SignalData));
-                    }
-                } else {
-                    // viewer читає offer + ice від хоста
-                    const r = await fetch(`/api/webrtc/offer?roomId=${roomId}&to=${clientIdRef.current}`, { cache: 'no-store' });
-                    if (r.ok) {
-                        const { offer, ice }: { offer?: OfferPayload; ice?: IcePayload[] } = await r.json();
-                        if (offer) peer.signal(offer as SignalData);
-                        if (ice?.length) ice.forEach((i) => peer.signal(i as SignalData));
-                    }
-                }
-            } catch (e) {
-                // ignore single errors
-            }
-            await sleep(1200);
-            // вийдемо з циклу якщо компонент розмонтувався / peer знищено
-            if (!peerRef.current || peerRef.current !== peer) stop = true;
-        }
-    }
-
-    function destroyPeer() {
-        try { peerRef.current?.destroy(); } catch { }
-        peerRef.current = null;
-        setStatus('idle');
-    }
-
-    async function takeSnapshotToMongo() {
-        if (!isHost) return; // знімок робить хост зі свого потоку
-        const video = localVideoRef.current;
-        if (!video) return;
-
-        const canvas = document.createElement('canvas');
-        const W = (video.videoWidth || 640);
-        const H = (video.videoHeight || 360);
-        canvas.width = W; canvas.height = H;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        setSnapBusy(true);
-        try {
-            ctx.drawImage(video, 0, 0, W, H);
-            const blob: Blob = await new Promise((resolve) => canvas.toBlob((b) => resolve(b as Blob), 'image/jpeg', 0.9));
-            const b64 = await blobToBase64(blob);
-
-            const r = await fetch('/api/vision/snap', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    roomId,
-                    dataUrl: b64,
-                    createdAt: new Date().toISOString(),
-                }),
-            });
-            if (!r.ok) throw new Error('snap save failed');
-        } catch (e: any) {
-            setErr(e.message || 'snapshot failed');
-        } finally {
-            setSnapBusy(false);
-        }
-    }
-
-    function blobToBase64(b: Blob): Promise<string> {
-        return new Promise((resolve, reject) => {
-            const fr = new FileReader();
-            fr.onload = () => resolve(String(fr.result));
-            fr.onerror = reject;
-            fr.readAsDataURL(b);
+        peer.on("connect", () => setStatus("connected"));
+        peer.on("error", (e) => {
+            setErr(e.message);
+            setStatus("error");
         });
-    }
+        peer.on("close", () => setStatus("idle"));
 
-    // при зміні режиму — повний reset peer
-    useEffect(() => () => destroyPeer(), []);
+        // Пулінг (залежно від ролі)
+        (async () => {
+            if (isHost) {
+                // HOST чекає answer + ICE від viewer
+                setStatus("waiting-answer");
+
+                // опитуємо відповідь
+                while (!stop && !otherIdRef.current) {
+                    const ans = await pollJSON<{ sdp: any; from: string }>(
+                        `/api/webrtc/answer?roomId=${encodeURIComponent(roomId)}&to=${encodeURIComponent(
+                            myIdRef.current
+                        )}`
+                    );
+                    if (ans?.sdp) {
+                        otherIdRef.current = ans.from;
+                        peer.signal(ans.sdp as any);
+                        break;
+                    }
+                    await sleep(POLL_MS);
+                }
+
+                setStatus("exchanging-ice");
+                // host читає ICE, адресовані йому
+                while (!stop) {
+                    const ice = await pollJSON<{ ice: IcePayload }>(
+                        `/api/webrtc/candidate?roomId=${encodeURIComponent(
+                            roomId
+                        )}&to=${encodeURIComponent(myIdRef.current)}`
+                    );
+                    if (ice?.ice?.candidate) {
+                        try {
+                            peer.signal(ice.ice as any);
+                        } catch (e) {
+                            // може прийти задубльований кандидат — ігноруємо
+                        }
+                    }
+                    await sleep(POLL_MS);
+                }
+            } else {
+                // VIEWER спершу чекає offer від host
+                setStatus("waiting-offer");
+                let hostId: string | null = null;
+
+                while (!stop && !hostId) {
+                    const off = await pollJSON<{ sdp: any; from: string }>(
+                        `/api/webrtc/offer?roomId=${encodeURIComponent(roomId)}`
+                    );
+                    if (off?.sdp && off.from) {
+                        hostId = off.from;
+                        otherIdRef.current = hostId;
+                        peer.signal(off.sdp as any);
+                        break;
+                    }
+                    await sleep(POLL_MS);
+                }
+
+                setStatus("exchanging-ice");
+                // viewer читає ICE: або адресовані йому, або «broadcast» (to не заданий) від host
+                while (!stop) {
+                    const ice = await pollJSON<{ ice: IcePayload }>(
+                        `/api/webrtc/candidate?roomId=${encodeURIComponent(
+                            roomId
+                        )}&to=${encodeURIComponent(myIdRef.current)}&from=${encodeURIComponent(
+                            otherIdRef.current || ""
+                        )}`
+                    );
+                    if (ice?.ice?.candidate) {
+                        try {
+                            peer.signal(ice.ice as any);
+                        } catch (e) { }
+                    }
+                    await sleep(POLL_MS);
+                }
+            }
+        })();
+
+        return () => {
+            stop = true;
+            try {
+                peer.destroy();
+            } catch { }
+            peerRef.current = null;
+        };
+    }, [mode, roomId]);
 
     return (
-        <div className="rounded-2xl bg-white/10 p-4 border border-white/10">
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-                <Badge tone="indigo">room: {roomId}</Badge>
-                <Badge tone={isHost ? 'emerald' : 'slate'}>{isHost ? 'host' : 'viewer'}</Badge>
-                <Badge tone={status === 'connected' ? 'emerald' : status === 'connecting' ? 'indigo' : 'slate'}>status: {status}</Badge>
-                {err && <Badge tone="rose">ERR: {err}</Badge>}
+        <div className="min-h-screen bg-black text-white p-4 space-y-4">
+            <h1 className="text-2xl font-bold">Vision WebRTC Bridge</h1>
 
-                <div className="ml-auto flex gap-2">
-                    <button
-                        onClick={() => setMode('host')}
-                        className={`px-3 py-1 rounded font-semibold ${isHost ? 'bg-emerald-600' : 'bg-slate-700'} hover:opacity-90`}
-                    >
-                        Host
-                    </button>
-                    <button
-                        onClick={() => setMode('viewer')}
-                        className={`px-3 py-1 rounded font-semibold ${!isHost ? 'bg-indigo-600' : 'bg-slate-700'} hover:opacity-90`}
-                    >
-                        Viewer
-                    </button>
-                </div>
-            </div>
-
-            {/* керування */}
-            <div className="flex flex-wrap gap-2 mb-4">
-                {status !== 'connected' ? (
-                    <button
-                        onClick={createPeer}
-                        className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 font-semibold"
-                    >
-                        🔗 Підключити
-                    </button>
-                ) : (
-                    <button
-                        onClick={destroyPeer}
-                        className="px-4 py-2 rounded bg-rose-600 hover:bg-rose-500 active:bg-rose-700 font-semibold"
-                    >
-                        ✂️ Роз’єднати
-                    </button>
-                )}
-
-                {/* Знімок у Mongo — тільки в кімнаті та тільки для host */}
+            <div className="flex flex-wrap gap-3 items-center">
+                <span className="px-2 py-1 rounded bg-slate-100 text-xs text-slate-900">mode</span>
                 <button
-                    onClick={takeSnapshotToMongo}
-                    disabled={!isHost || status !== 'connected' || snapBusy}
-                    className="px-4 py-2 rounded bg-yellow-500/90 hover:bg-yellow-400 active:bg-yellow-600 font-semibold disabled:opacity-50"
-                    title={isHost ? '' : 'Знімок може робити тільки Host'}
+                    className={`px-3 py-1 rounded ${mode === "host" ? "bg-emerald-600" : "bg-slate-700"}`}
+                    onClick={() => setMode("host")}
                 >
-                    📸 Зробити фото в Mongo
+                    host
                 </button>
+                <button
+                    className={`px-3 py-1 rounded ${mode === "viewer" ? "bg-blue-600" : "bg-slate-700"}`}
+                    onClick={() => setMode("viewer")}
+                >
+                    viewer
+                </button>
+
+                <span className="ml-4 px-2 py-1 rounded bg-slate-100 text-xs text-slate-900">room</span>
+                <input
+                    value={roomId}
+                    onChange={(e) => setRoomId(e.target.value)}
+                    className="px-2 py-1 rounded bg-white/90 text-black"
+                />
+                <a
+                    className="px-3 py-1 rounded bg-indigo-600"
+                    href={`/vision/${encodeURIComponent(roomId)}?mode=viewer`}
+                >
+                    Посилання для глядача
+                </a>
+
+                <span className="ml-auto text-sm opacity-80">status: {status}</span>
             </div>
 
-            {/* відео-блоки */}
-            <div className="grid sm:grid-cols-2 gap-4">
-                <div className="rounded bg-black/60 border border-white/10 p-2">
-                    <div className="text-sm mb-1 text-slate-300">Local</div>
-                    <video
-                        ref={localVideoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-64 bg-black rounded"
-                    />
-                </div>
-                <div className="rounded bg-black/60 border border-white/10 p-2">
-                    <div className="text-sm mb-1 text-slate-300">Remote</div>
-                    <video
-                        ref={remoteVideoRef}
-                        autoPlay
-                        playsInline
-                        className="w-full h-64 bg-black rounded"
-                    />
+            {err && <div className="text-sm text-rose-400">ERR: {err}</div>}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl bg-white/10 p-3">
+                    <div className="text-sm opacity-80 mb-1">{mode === "host" ? "LOCAL" : "REMOTE"}</div>
+                    {mode === "host" ? (
+                        <video ref={localVideoRef} autoPlay playsInline muted className="w-full rounded-lg" />
+                    ) : (
+                        <video ref={remoteVideoRef} autoPlay playsInline className="w-full rounded-lg" />
+                    )}
                 </div>
             </div>
         </div>

@@ -5,60 +5,93 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
 
-type CandDoc = {
+type IceDoc = {
     _id?: string;
     roomId: string;
-    to: string;    // одержувач
-    from: string;  // відправник
-    candidate: RTCIceCandidateInit;
+    from: string;
+    to?: string; // може бути невідомий (host до появи answer)
+    ice: { type: "candidate"; candidate: RTCIceCandidateInit };
     createdAt: string;
 };
 
-// in-memory fallback (черга)
-const mem = {
-    candidates: [] as CandDoc[],
-};
+const mem = { ices: [] as IceDoc[] };
 
 async function tryDb<T>(fn: () => Promise<T>): Promise<T | null> {
-    try { return await fn(); } catch { return null; }
+    try {
+        return await fn();
+    } catch {
+        return null;
+    }
 }
 
 export async function POST(req: Request) {
-    const body = (await req.json()) as CandDoc;
-    const doc: CandDoc = { ...body, createdAt: new Date().toISOString() };
+    const body = (await req.json()) as {
+        roomId: string;
+        from: string;
+        to?: string;
+        ice: { type: "candidate"; candidate: RTCIceCandidateInit };
+    };
+    const doc: IceDoc = {
+        roomId: body.roomId,
+        from: body.from,
+        to: body.to,
+        ice: body.ice,
+        createdAt: new Date().toISOString(),
+    };
 
     const ok = await tryDb(async () => {
         const db = await getDb();
-        await db.collection<CandDoc>("webrtc_candidates").insertOne(doc);
+        await db.collection<IceDoc>("webrtc_ice").insertOne(doc);
+        // легкий TTL-чистильник (старше 2 хв)
+        const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+        await db.collection<IceDoc>("webrtc_ice").deleteMany({ createdAt: { $lt: cutoff } as any });
         return true;
     });
 
     if (!ok) {
-        mem.candidates.push(doc);
+        mem.ices.push(doc);
+        const cutoff = Date.now() - 2 * 60 * 1000;
+        mem.ices = mem.ices.filter((x) => new Date(x.createdAt).getTime() >= cutoff);
     }
-
     return NextResponse.json({ ok: true, mode: ok ? "mongo" : "memory" });
 }
 
-// Отримати та ВИДАЛИТИ всі кандидати для (roomId,to)
+// GET /api/webrtc/candidate?roomId=...&to=ME&from=OTHER
 export async function GET(req: Request) {
     const url = new URL(req.url);
     const roomId = url.searchParams.get("roomId") || "";
     const to = url.searchParams.get("to") || "";
+    const from = url.searchParams.get("from") || "";
 
+    // Mongo: забираємо ОДИН найстаріший підходящий і видаляємо його
     const got = await tryDb(async () => {
         const db = await getDb();
-        const col = db.collection<CandDoc>("webrtc_candidates");
-        const items = await col.find({ roomId, to }).sort({ createdAt: 1 }).toArray();
-        if (items.length) {
-            await col.deleteMany({ roomId, to });
-        }
-        return items;
-    });
+        const col = db.collection<IceDoc>("webrtc_ice");
 
+        const filter: any = { roomId };
+        const or: any[] = [{ to }];
+        if (to) or.push({ to: { $exists: false } });
+        filter.$or = or;
+        if (from) filter.from = from;
+
+        const doc = await col.findOne(filter, { sort: { createdAt: 1 } as any });
+        if (!doc) return null;
+
+        await col.deleteOne({ _id: doc._id } as any);
+        return { ice: doc.ice };
+    });
     if (got) return NextResponse.json(got);
 
-    const list = mem.candidates.filter(c => c.roomId === roomId && c.to === to);
-    mem.candidates = mem.candidates.filter(c => !(c.roomId === roomId && c.to === to));
-    return NextResponse.json(list);
+    // Memory fallback
+    const idx = mem.ices.findIndex(
+        (c) =>
+            c.roomId === roomId &&
+            (!from || c.from === from) &&
+            (c.to === to || typeof c.to === "undefined")
+    );
+    if (idx >= 0) {
+        const [picked] = mem.ices.splice(idx, 1);
+        return NextResponse.json({ ice: picked.ice });
+    }
+    return NextResponse.json({});
 }
