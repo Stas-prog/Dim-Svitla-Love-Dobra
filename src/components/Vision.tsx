@@ -120,12 +120,15 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             trickle: true,
             config: {
                 iceServers: [
-                    { urls: "stun:stun.l.google.com:19302" },
-                    { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
+                    { urls: ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478"] },
+
                 ],
+                iceTransportPolicy: "all",
             },
             stream: isHost ? streamRef.current ?? undefined : undefined,
         });
+
+
         peerRef.current = peer;
 
         if (!isHost) {
