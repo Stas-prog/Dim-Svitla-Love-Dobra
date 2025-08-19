@@ -20,13 +20,11 @@ function sleep(ms: number) {
 }
 
 export default function Vision({ initialMode, initialRoomId }: Props) {
-    // ---------- UI / state ----------
     const [mode, setMode] = useState<Mode>(initialMode ?? "host");
     const [roomId, setRoomId] = useState<string>(initialRoomId ?? crypto.randomUUID());
     const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
     const [err, setErr] = useState<string | null>(null);
 
-    // ---------- Refs ----------
     const clientIdRef = useRef<string>("");
     const peerRef = useRef<SimplePeer.Instance | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -38,12 +36,10 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
     const pollOfferTimer = useRef<number | null>(null);
     const pollIceTimer = useRef<number | null>(null);
 
-    // ---------- consts ----------
     const POLL_ANSWER_MS = 1500;
     const POLL_OFFER_MS = 1500;
     const POLL_ICE_MS = 800;
 
-    // ---------- helpers ----------
     function clearTimers() {
         if (pollAnswerTimer.current) { window.clearInterval(pollAnswerTimer.current); pollAnswerTimer.current = null; }
         if (pollOfferTimer.current) { window.clearInterval(pollOfferTimer.current); pollOfferTimer.current = null; }
@@ -85,14 +81,11 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
         return r.json();
     }
 
-    // ---------- mount ----------
     useEffect(() => {
         clientIdRef.current = getClientId();
         return () => resetState();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ---------- connect ----------
     const connect = async () => {
         try {
             resetState(true);
@@ -100,40 +93,33 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
             setErr(null);
 
             if (mode === "host") {
-                // 1) Спершу забираємо камеру
                 const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 streamRef.current = media;
                 if (localVideoRef.current) {
                     localVideoRef.current.srcObject = media;
-                    // автоплей (може бути заблоковано політиками браузера — ок)
                     localVideoRef.current.play().catch(() => { });
                 }
 
-                // 2) Створюємо peer ІЗ stream в конструкторі — без addTrack
-                const peer = new SimplePeer({
-                    initiator: true,
-                    trickle: true,
-                    stream: media,
-                });
+                const peer = new SimplePeer({ initiator: true, trickle: true, stream: media });
                 peerRef.current = peer;
 
-                // 3) Вивід помилок/статусу
                 peer.on("connect", () => setStatus("connected"));
                 peer.on("error", (e) => { setErr(e.message); setStatus("error"); });
                 peer.on("close", () => setStatus("idle"));
 
-                // 4) Власні сигнали (offer/ice)
                 peer.on("signal", async (data: SignalData) => {
                     try {
                         if ((data as any).type === "offer") {
                             await postJSON("/api/webrtc/offer", {
-                                roomId, offer: { type: "offer", sdp: (data as any).sdp } as OfferPayload,
+                                roomId,
+                                offer: { type: "offer", sdp: (data as any).sdp } as OfferPayload,
                                 from: clientIdRef.current,
                             });
                         } else if ((data as any).candidate) {
                             const candidate = (data as any).candidate as RTCIceCandidateInit;
                             await postJSON("/api/webrtc/candidate", {
-                                roomId, ice: { type: "candidate", candidate } as IcePayload,
+                                roomId,
+                                ice: { type: "candidate", candidate } as IcePayload,
                                 from: clientIdRef.current,
                             });
                         }
@@ -142,7 +128,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                     }
                 });
 
-                // 5) Poll відповіді
                 pollAnswerTimer.current = window.setInterval(async () => {
                     try {
                         const ans = await getJSON(`/api/webrtc/answer?roomId=${roomId}&to=${clientIdRef.current}`);
@@ -152,7 +137,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                     } catch { }
                 }, POLL_ANSWER_MS) as unknown as number;
 
-                // 6) Poll чужих ICE
                 pollIceTimer.current = window.setInterval(async () => {
                     try {
                         const list = await getJSON(`/api/webrtc/candidate?roomId=${roomId}&to=${clientIdRef.current}`);
@@ -165,7 +149,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                 }, POLL_ICE_MS) as unknown as number;
 
             } else {
-                // viewer
                 const peer = new SimplePeer({ initiator: false, trickle: true });
                 peerRef.current = peer;
 
@@ -173,8 +156,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                 peer.on("error", (e) => { setErr(e.message); setStatus("error"); });
                 peer.on("close", () => setStatus("idle"));
 
-                // показ віддаленого відео
-                // simple-peer генерує і 'stream', і 'track'; використаємо 'stream' для сумісності
                 peer.on("stream", (remote: MediaStream) => {
                     const el = remoteVideoRef.current;
                     if (!el) return;
@@ -182,18 +163,19 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                     el.play().catch(() => { });
                 });
 
-                // надсилаємо свої сигнали (answer/ice)
                 peer.on("signal", async (data: SignalData) => {
                     try {
                         if ((data as any).type === "answer") {
                             await postJSON("/api/webrtc/answer", {
-                                roomId, answer: { type: "answer", sdp: (data as any).sdp } as AnswerPayload,
+                                roomId,
+                                answer: { type: "answer", sdp: (data as any).sdp } as AnswerPayload,
                                 from: clientIdRef.current,
                             });
                         } else if ((data as any).candidate) {
                             const candidate = (data as any).candidate as RTCIceCandidateInit;
                             await postJSON("/api/webrtc/candidate", {
-                                roomId, ice: { type: "candidate", candidate } as IcePayload,
+                                roomId,
+                                ice: { type: "candidate", candidate } as IcePayload,
                                 from: clientIdRef.current,
                             });
                         }
@@ -202,7 +184,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                     }
                 });
 
-                // Poll offer (поки не отримаємо валідний sdp)
                 pollOfferTimer.current = window.setInterval(async () => {
                     try {
                         const off = await getJSON(`/api/webrtc/offer?roomId=${roomId}`);
@@ -212,7 +193,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                     } catch { }
                 }, POLL_OFFER_MS) as unknown as number;
 
-                // Poll чужих ICE
                 pollIceTimer.current = window.setInterval(async () => {
                     try {
                         const list = await getJSON(`/api/webrtc/candidate?roomId=${roomId}&to=${clientIdRef.current}`);
@@ -234,7 +214,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
         resetState();
     };
 
-    // ---------- snapshot ----------
     const shoot = async () => {
         try {
             const el = mode === "host" ? localVideoRef.current : remoteVideoRef.current;
@@ -255,7 +234,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
             ctx.drawImage(el, 0, 0, w, h);
             const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
 
-            // на API збереження кадру (твій існуючий ендпойнт)
             const r = await fetch("/api/vision/capture", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -269,7 +247,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
         }
     };
 
-    // ---------- UI (контраст + простота) ----------
     const canShoot =
         (mode === "host" && !!(localVideoRef.current?.srcObject)) ||
         (mode === "viewer" && !!(remoteVideoRef.current?.srcObject));
@@ -280,7 +257,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                 <h1 className="text-2xl font-bold">👁️ Зір Світлозіра</h1>
                 <p className="text-slate-300 mt-1">Прямий міст WebRTC: {mode === "host" ? "Хост" : "Глядач"}</p>
 
-                {/* Панель керування */}
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-2xl bg-slate-800/70 p-4 border border-slate-700">
                         <div className="text-sm text-slate-300 mb-2">Режим</div>
@@ -309,7 +285,9 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                                 onChange={(e) => setRoomId(e.target.value)}
                             />
                             <div className="mt-2 text-xs text-slate-400 break-all">
-                                Посилання для глядача: <span className="underline decoration-dotted">{`${location.origin}/vision/${roomId}?mode=viewer`}</span>
+                                Посилання для глядача:&nbsp;
+                                <span className="underline decoration-dotted">{`/vision/${roomId}?mode=viewer`}</span>
+                                {/* Використовуємо відносний шлях, без window.location → без SSR-помилок */}
                             </div>
                         </div>
 
@@ -362,11 +340,10 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                     </div>
                 </div>
 
-                {/* Підказки */}
                 <div className="mt-4 text-xs text-slate-400 space-y-1">
                     <div>1) Хост генерує <span className="font-mono">roomId</span> і тисне «Підключитися».</div>
                     <div>2) Глядач відкриває лінк <span className="font-mono">/vision/&lt;roomId?mode=viewer</span> і тисне «Підключитися».</div>
-                    <div>3) Коли відео пішло — можна тиснути «📸 Зробити фото» (відповідне до режиму).</div>
+                    <div>3) Коли відео пішло — можна тиснути «📸 Зробити фото».</div>
                 </div>
             </div>
         </div>
