@@ -6,6 +6,11 @@ import { getClientId } from "@/lib/clientId";
 
 type Mode = "host" | "viewer";
 
+type VisionProps = {
+    initialRoomId?: string;
+    initialMode?: Mode;
+};
+
 function genId() {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
         return crypto.randomUUID();
@@ -13,13 +18,14 @@ function genId() {
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export default function Vision() {
-    const [mode, setMode] = useState<Mode>("host");
-    const [roomId, setRoomId] = useState<string>("");
+export default function Vision({ initialRoomId, initialMode }: VisionProps) {
+    // 1) базові стейти з урахуванням пропсів (щоб SSR/CSR збігались)
+    const [mode, setMode] = useState<Mode>(initialMode ?? "host");
+    const [roomId, setRoomId] = useState<string>(initialRoomId ?? "");
     const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
     const [err, setErr] = useState<string>("");
 
-    // 💡 нове: контроль монтажу та окремий стейт для посилання
+    // hydration-сейф посилання
     const [mounted, setMounted] = useState(false);
     const [viewerHref, setViewerHref] = useState<string>("");
 
@@ -30,34 +36,35 @@ export default function Vision() {
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
-    useEffect(() => {
-        setMounted(true);
-    }, []);
+    useEffect(() => { setMounted(true); }, []);
 
-    // Ініціалізація з URL (mode/roomId) + автогенерація roomId якщо порожній
+    // 2) Підхопити з URL лише те, чого нема у пропсах
     useEffect(() => {
         if (!mounted) return;
 
         clientIdRef.current = getClientId();
 
         const url = new URL(window.location.href);
-        const qpMode = (url.searchParams.get("mode") as Mode) || "host";
-        const qpId = url.searchParams.get("roomId");
 
-        setMode(qpMode);
-
-        if (qpId) {
-            setRoomId(qpId);
-        } else {
-            const id = genId();
-            setRoomId(id);
-            url.searchParams.set("roomId", id);
-            if (!url.searchParams.get("mode")) url.searchParams.set("mode", qpMode);
-            window.history.replaceState({}, "", url.toString());
+        if (initialMode == null) {
+            const qpMode = (url.searchParams.get("mode") as Mode) || mode;
+            setMode(qpMode);
         }
-    }, [mounted]);
+        if (!initialRoomId) {
+            const qpId = url.searchParams.get("roomId");
+            if (qpId) {
+                setRoomId(qpId);
+            } else {
+                const id = genId();
+                setRoomId(id);
+                url.searchParams.set("roomId", id);
+                if (!url.searchParams.get("mode")) url.searchParams.set("mode", initialMode ?? mode);
+                window.history.replaceState({}, "", url.toString());
+            }
+        }
+    }, [mounted]); // eslint-disable-line
 
-    // Оновлюємо viewerHref ТІЛЬКИ на клієнті, після монтажу
+    // 3) Формувати viewerHref тільки на клієнті
     useEffect(() => {
         if (!mounted) return;
         try {
@@ -147,22 +154,14 @@ export default function Vision() {
                     const res = await fetch("/api/webrtc/offer", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
-                        body: JSON.stringify({
-                            roomId: id,
-                            offer: data,
-                            from: clientIdRef.current,
-                        }),
+                        body: JSON.stringify({ roomId: id, offer: data, from: clientIdRef.current }),
                     });
                     if (!res.ok) throw new Error("offer save failed");
                 } else if ((data as any).type === "answer") {
                     const res = await fetch("/api/webrtc/answer", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
-                        body: JSON.stringify({
-                            roomId: id,
-                            answer: data,
-                            from: clientIdRef.current,
-                        }),
+                        body: JSON.stringify({ roomId: id, answer: data, from: clientIdRef.current }),
                     });
                     if (!res.ok) throw new Error("answer save failed");
                 } else if ((data as any).candidate) {
@@ -298,11 +297,7 @@ export default function Vision() {
                         placeholder="auto-generated"
                     />
                     <div className="text-xs text-slate-400 mt-2">viewer link</div>
-                    {/* suppressHydrationWarning, і поки не mounted — показуємо стабільний плейсхолдер */}
-                    <div
-                        className="break-all text-xs bg-slate-900 rounded p-2 border border-slate-700"
-                        suppressHydrationWarning
-                    >
+                    <div className="break-all text-xs bg-slate-900 rounded p-2 border border-slate-700" suppressHydrationWarning>
                         {mounted ? (viewerHref || "—") : "—"}
                     </div>
                 </div>

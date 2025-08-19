@@ -1,21 +1,22 @@
-'use client';
+import React from "react";
+import Vision from "@/components/Vision";
+import '../vision-theme.css'
 
-import React, { use } from 'react';
-import Vision from '@/components/Vision';
-import '../vision-theme.css'; // <— додаємо (з урахуванням відносного шляху)
-
-type Props = {
+export default function VisionRoomPage({
+    params,
+    searchParams,
+}: {
     params: Promise<{ id: string }>;
-    searchParams: Promise<{ mode?: 'host' | 'viewer' }>;
-};
+    searchParams: Promise<{ mode?: string }>;
+}) {
+    const p = React.use(params);
+    const sp = React.use(searchParams);
 
-export default function VisionLinkedPage(p: Props) {
-    const { id } = use(p.params);
-    const s = use(p.searchParams);
-    const initialMode = (s.mode === 'host' || s.mode === 'viewer') ? s.mode : 'viewer';
+    const id = p.id;
+    const initialMode = sp.mode === "host" || sp.mode === "viewer" ? (sp.mode as "host" | "viewer") : "viewer";
 
     return (
-        <main className="vision-ui min-h-screen">
+        <main className="vision-ui min-h-screen bg-slate-950 text-slate-100">
             <div className="max-w-5xl mx-auto p-4 sm:p-6">
                 <h1 className="text-2xl font-bold mb-3">🔗 Vision (room: {id})</h1>
                 <Vision initialRoomId={id} initialMode={initialMode} />
