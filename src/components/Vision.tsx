@@ -5,18 +5,30 @@ import SimplePeer, { SignalData } from "simple-peer";
 import { getClientId } from "@/lib/clientId";
 
 type Mode = "host" | "viewer";
-
-type OfferPayload = { type: "offer"; sdp: any };
-type AnswerPayload = { type: "answer"; sdp: any };
+type SignalShape = { type: "offer" | "answer" | "pranswer"; sdp: string };
 type IcePayload = { type: "candidate"; candidate: RTCIceCandidateInit };
 
-type Props = {
-    initialMode?: Mode;
-    initialRoomId?: string;
-};
+type Props = { initialMode?: Mode; initialRoomId?: string };
 
-function sleep(ms: number) {
-    return new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+// Нормалізує будь-який об'єкт із API до {type, sdp}
+function normalizeSignal(input: any): SignalShape | null {
+    if (!input) return null;
+
+    // якщо прийшов повний сигнал
+    if (typeof input.sdp === "string" && typeof input.type === "string") {
+        return { type: input.type, sdp: input.sdp };
+    }
+    // якщо прийшов doc з полем sdp усередині
+    if (input.sdp && typeof input.sdp.sdp === "string" && typeof input.sdp.type === "string") {
+        return { type: input.sdp.type, sdp: input.sdp.sdp };
+    }
+    // якщо прийшов чистий рядок (рідко)
+    if (typeof input === "string") {
+        return { type: "offer", sdp: input };
+    }
+    return null;
 }
 
 export default function Vision({ initialMode, initialRoomId }: Props) {
@@ -45,52 +57,35 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
         if (pollOfferTimer.current) { window.clearInterval(pollOfferTimer.current); pollOfferTimer.current = null; }
         if (pollIceTimer.current) { window.clearInterval(pollIceTimer.current); pollIceTimer.current = null; }
     }
-
-    function destroyPeer() {
-        try { peerRef.current?.destroy(); } catch { }
-        peerRef.current = null;
-    }
-
+    function destroyPeer() { try { peerRef.current?.destroy(); } catch { } peerRef.current = null; }
     function stopLocalStream() {
         streamRef.current?.getTracks()?.forEach(t => { try { t.stop(); } catch { } });
         streamRef.current = null;
         if (localVideoRef.current) localVideoRef.current.srcObject = null;
     }
+    function resetState(soft = false) { clearTimers(); destroyPeer(); if (!soft) stopLocalStream(); setStatus("idle"); setErr(null); }
 
-    function resetState(soft = false) {
-        clearTimers();
-        destroyPeer();
-        if (!soft) stopLocalStream();
-        setStatus("idle");
-        setErr(null);
-    }
+    useEffect(() => {
+        clientIdRef.current = getClientId();
+        return () => resetState();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     async function postJSON(url: string, body: any) {
-        const r = await fetch(url, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-        });
+        const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         if (!r.ok) throw new Error(`${url} ${r.status}`);
         return r.json();
     }
-
     async function getJSON(url: string) {
         const r = await fetch(url, { cache: "no-store" });
         if (!r.ok) throw new Error(`${url} ${r.status}`);
         return r.json();
     }
 
-    useEffect(() => {
-        clientIdRef.current = getClientId();
-        return () => resetState();
-    }, []);
-
     const connect = async () => {
         try {
             resetState(true);
-            setStatus("connecting");
-            setErr(null);
+            setStatus("connecting"); setErr(null);
 
             if (mode === "host") {
                 const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -110,10 +105,11 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                 peer.on("signal", async (data: SignalData) => {
                     try {
                         if ((data as any).type === "offer") {
+                            // Надсилаємо sdp без зайвих вкладень
                             await postJSON("/api/webrtc/offer", {
                                 roomId,
-                                offer: { type: "offer", sdp: (data as any).sdp } as OfferPayload,
                                 from: clientIdRef.current,
+                                sdp: { type: "offer", sdp: (data as any).sdp },
                             });
                         } else if ((data as any).candidate) {
                             const candidate = (data as any).candidate as RTCIceCandidateInit;
@@ -128,15 +124,18 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                     }
                 });
 
+                // POLL: отримати answer
                 pollAnswerTimer.current = window.setInterval(async () => {
                     try {
-                        const ans = await getJSON(`/api/webrtc/answer?roomId=${roomId}&to=${clientIdRef.current}`);
-                        if (ans?.sdp && peerRef.current && !peerRef.current.destroyed) {
-                            peerRef.current.signal({ type: "answer", sdp: ans.sdp });
+                        const raw = await getJSON(`/api/webrtc/answer?roomId=${roomId}&to=${clientIdRef.current}`);
+                        const sig = normalizeSignal(raw) || normalizeSignal(raw?.sdp);
+                        if (sig && peerRef.current && !peerRef.current.destroyed) {
+                            peerRef.current.signal(sig as any);
                         }
                     } catch { }
                 }, POLL_ANSWER_MS) as unknown as number;
 
+                // POLL: ICE від viewer
                 pollIceTimer.current = window.setInterval(async () => {
                     try {
                         const list = await getJSON(`/api/webrtc/candidate?roomId=${roomId}&to=${clientIdRef.current}`);
@@ -168,8 +167,9 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                         if ((data as any).type === "answer") {
                             await postJSON("/api/webrtc/answer", {
                                 roomId,
-                                answer: { type: "answer", sdp: (data as any).sdp } as AnswerPayload,
+                                to: (await getJSON(`/api/webrtc/offer?roomId=${roomId}`))?.from ?? "", // на кого відповідаємо
                                 from: clientIdRef.current,
+                                sdp: { type: "answer", sdp: (data as any).sdp },
                             });
                         } else if ((data as any).candidate) {
                             const candidate = (data as any).candidate as RTCIceCandidateInit;
@@ -184,15 +184,18 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                     }
                 });
 
+                // POLL: отримати offer
                 pollOfferTimer.current = window.setInterval(async () => {
                     try {
-                        const off = await getJSON(`/api/webrtc/offer?roomId=${roomId}`);
-                        if (off?.sdp && peerRef.current && !peerRef.current.destroyed) {
-                            peerRef.current.signal({ type: "offer", sdp: off.sdp });
+                        const raw = await getJSON(`/api/webrtc/offer?roomId=${roomId}`);
+                        const sig = normalizeSignal(raw) || normalizeSignal(raw?.sdp);
+                        if (sig && peerRef.current && !peerRef.current.destroyed) {
+                            peerRef.current.signal(sig as any);
                         }
                     } catch { }
                 }, POLL_OFFER_MS) as unknown as number;
 
+                // POLL: ICE від host
                 pollIceTimer.current = window.setInterval(async () => {
                     try {
                         const list = await getJSON(`/api/webrtc/candidate?roomId=${roomId}&to=${clientIdRef.current}`);
@@ -210,9 +213,7 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
         }
     };
 
-    const disconnect = () => {
-        resetState();
-    };
+    const disconnect = () => { resetState(); };
 
     const shoot = async () => {
         try {
@@ -227,10 +228,8 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
             const h = Math.max(240, settings.height || 360);
 
             const canvas = document.createElement("canvas");
-            canvas.width = w;
-            canvas.height = h;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) throw new Error("canvas ctx");
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("canvas ctx");
             ctx.drawImage(el, 0, 0, w, h);
             const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
 
@@ -240,7 +239,6 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
                 body: JSON.stringify({ roomId, dataUrl, source: mode }),
             });
             if (!r.ok) throw new Error("/api/vision/capture failed");
-
             alert("📸 Кадр збережено!");
         } catch (e: any) {
             setErr(e.message || "snapshot failed");
@@ -255,62 +253,41 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
         <div className="min-h-screen bg-slate-900 text-white">
             <div className="mx-auto max-w-5xl px-4 py-6">
                 <h1 className="text-2xl font-bold">👁️ Зір Світлозіра</h1>
-                <p className="text-slate-300 mt-1">Прямий міст WebRTC: {mode === "host" ? "Хост" : "Глядач"}</p>
+                <p className="text-slate-300 mt-1">Міст WebRTC: {mode === "host" ? "Хост" : "Глядач"}</p>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-2xl bg-slate-800/70 p-4 border border-slate-700">
                         <div className="text-sm text-slate-300 mb-2">Режим</div>
                         <div className="flex gap-2">
-                            <button
-                                className={`px-3 py-1.5 rounded border ${mode === "host" ? "bg-emerald-600 border-emerald-500" : "bg-slate-700 border-slate-600"
-                                    }`}
-                                onClick={() => { setMode("host"); resetState(); }}
-                            >
+                            <button className={`px-3 py-1.5 rounded border ${mode === "host" ? "bg-emerald-600 border-emerald-500" : "bg-slate-700 border-slate-600"}`}
+                                onClick={() => { setMode("host"); resetState(); }}>
                                 Host
                             </button>
-                            <button
-                                className={`px-3 py-1.5 rounded border ${mode === "viewer" ? "bg-indigo-600 border-indigo-500" : "bg-slate-700 border-slate-600"
-                                    }`}
-                                onClick={() => { setMode("viewer"); resetState(); }}
-                            >
+                            <button className={`px-3 py-1.5 rounded border ${mode === "viewer" ? "bg-indigo-600 border-indigo-500" : "bg-slate-700 border-slate-600"}`}
+                                onClick={() => { setMode("viewer"); resetState(); }}>
                                 Viewer
                             </button>
                         </div>
 
                         <div className="mt-4">
                             <div className="text-sm text-slate-300">Room ID</div>
-                            <input
-                                className="mt-1 w-full rounded bg-slate-900 border border-slate-700 px-2 py-1 font-mono outline-none"
-                                value={roomId}
-                                onChange={(e) => setRoomId(e.target.value)}
-                            />
+                            <input className="mt-1 w-full rounded bg-slate-900 border border-slate-700 px-2 py-1 font-mono outline-none"
+                                value={roomId} onChange={(e) => setRoomId(e.target.value)} />
                             <div className="mt-2 text-xs text-slate-400 break-all">
-                                Посилання для глядача:&nbsp;
-                                <span className="underline decoration-dotted">{`/vision/${roomId}?mode=viewer`}</span>
-                                {/* Використовуємо відносний шлях, без window.location → без SSR-помилок */}
+                                Лінк для глядача: <span className="underline decoration-dotted">/vision/{roomId}?mode=viewer</span>
                             </div>
                         </div>
 
                         <div className="mt-4 flex flex-wrap gap-2">
-                            <button
-                                className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 active:scale-[.98]"
-                                onClick={connect}
-                            >
+                            <button className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 active:scale-[.98]" onClick={connect}>
                                 Підключитися
                             </button>
-                            <button
-                                className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 active:scale-[.98]"
-                                onClick={disconnect}
-                            >
+                            <button className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 active:scale-[.98]" onClick={disconnect}>
                                 Відключитися
                             </button>
-                            <button
-                                disabled={!canShoot}
-                                className={`px-3 py-1.5 rounded border ${canShoot ? "bg-amber-500 border-amber-400" : "bg-slate-700 border-slate-600 opacity-60 cursor-not-allowed"
-                                    }`}
-                                onClick={shoot}
-                                title={canShoot ? "Зробити фото в Mongo" : "Немає відео — немає кадру"}
-                            >
+                            <button disabled={!canShoot}
+                                className={`px-3 py-1.5 rounded border ${canShoot ? "bg-amber-500 border-amber-400" : "bg-slate-700 border-slate-600 opacity-60 cursor-not-allowed"}`}
+                                onClick={shoot}>
                                 📸 Зробити фото
                             </button>
                         </div>
@@ -342,8 +319,8 @@ export default function Vision({ initialMode, initialRoomId }: Props) {
 
                 <div className="mt-4 text-xs text-slate-400 space-y-1">
                     <div>1) Хост генерує <span className="font-mono">roomId</span> і тисне «Підключитися».</div>
-                    <div>2) Глядач відкриває лінк <span className="font-mono">/vision/&lt;roomId?mode=viewer</span> і тисне «Підключитися».</div>
-                    <div>3) Коли відео пішло — можна тиснути «📸 Зробити фото».</div>
+                    <div>2) Глядач відкриває <span className="font-mono">/vision/&lt;roomId&gt;?mode=viewer</span> і тисне «Підключитися».</div>
+                    <div>3) Коли відео пішло — тисни «📸 Зробити фото».</div>
                 </div>
             </div>
         </div>
