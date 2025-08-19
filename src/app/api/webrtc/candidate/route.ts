@@ -1,3 +1,4 @@
+// src/app/api/webrtc/candidate/route.ts
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -8,90 +9,86 @@ import { getDb } from "@/lib/mongo";
 type IceDoc = {
     _id?: string;
     roomId: string;
-    from: string;
-    to?: string; // може бути невідомий (host до появи answer)
-    ice: { type: "candidate"; candidate: RTCIceCandidateInit };
-    createdAt: string;
+    from: string;        // хто надіслав
+    to?: string;         // кому адресовано (ід іншої сторони)
+    candidate: any;      // зберігаємо ICE-кандидат (RTCIceCandidateInit)
+    createdAt: string;   // ISO
 };
 
-const mem = { ices: [] as IceDoc[] };
+// --- просте in-memory fallback сховище (на випадок проблем з Mongo) ---
+const mem = {
+    ices: [] as IceDoc[],
+};
 
 async function tryDb<T>(fn: () => Promise<T>): Promise<T | null> {
-    try {
-        return await fn();
-    } catch {
-        return null;
-    }
+    try { return await fn(); } catch { return null; }
 }
 
+// POST: зберегти кандидат
+// body: { roomId: string; from: string; to?: string; ice: { type:'candidate', candidate: RTCIceCandidateInit } }
 export async function POST(req: Request) {
-    const body = (await req.json()) as {
+    const body = await req.json() as {
         roomId: string;
         from: string;
         to?: string;
-        ice: { type: "candidate"; candidate: RTCIceCandidateInit };
+        ice: { type: "candidate"; candidate: any };
     };
+
     const doc: IceDoc = {
         roomId: body.roomId,
         from: body.from,
         to: body.to,
-        ice: body.ice,
+        candidate: body.ice?.candidate,
         createdAt: new Date().toISOString(),
     };
 
+    // спроба Mongo
     const ok = await tryDb(async () => {
         const db = await getDb();
         await db.collection<IceDoc>("webrtc_ice").insertOne(doc);
-        // легкий TTL-чистильник (старше 2 хв)
-        const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-        await db.collection<IceDoc>("webrtc_ice").deleteMany({ createdAt: { $lt: cutoff } as any });
         return true;
     });
 
     if (!ok) {
+        // in-memory fallback
         mem.ices.push(doc);
-        const cutoff = Date.now() - 2 * 60 * 1000;
-        mem.ices = mem.ices.filter((x) => new Date(x.createdAt).getTime() >= cutoff);
     }
+
     return NextResponse.json({ ok: true, mode: ok ? "mongo" : "memory" });
 }
 
-// GET /api/webrtc/candidate?roomId=...&to=ME&from=OTHER
+// GET: отримати список кандидатів
+// /api/webrtc/candidate?roomId=...&to=...  -> поверне масив { type:'candidate', candidate: {...} }
 export async function GET(req: Request) {
     const url = new URL(req.url);
     const roomId = url.searchParams.get("roomId") || "";
-    const to = url.searchParams.get("to") || "";
-    const from = url.searchParams.get("from") || "";
+    const to = url.searchParams.get("to") || undefined;
 
-    // Mongo: забираємо ОДИН найстаріший підходящий і видаляємо його
-    const got = await tryDb(async () => {
+    // спроба з Mongo
+    const rows = await tryDb(async () => {
         const db = await getDb();
-        const col = db.collection<IceDoc>("webrtc_ice");
-
-        const filter: any = { roomId };
-        const or: any[] = [{ to }];
-        if (to) or.push({ to: { $exists: false } });
-        filter.$or = or;
-        if (from) filter.from = from;
-
-        const doc = await col.findOne(filter, { sort: { createdAt: 1 } as any });
-        if (!doc) return null;
-
-        await col.deleteOne({ _id: doc._id } as any);
-        return { ice: doc.ice };
+        const filter: Partial<IceDoc> = { roomId };
+        if (to) filter.to = to;
+        const list = await db
+            .collection<IceDoc>("webrtc_ice")
+            .find(filter)
+            .sort({ createdAt: 1 })
+            .toArray();
+        return list;
     });
-    if (got) return NextResponse.json(got);
 
-    // Memory fallback
-    const idx = mem.ices.findIndex(
-        (c) =>
-            c.roomId === roomId &&
-            (!from || c.from === from) &&
-            (c.to === to || typeof c.to === "undefined")
-    );
-    if (idx >= 0) {
-        const [picked] = mem.ices.splice(idx, 1);
-        return NextResponse.json({ ice: picked.ice });
+    if (rows) {
+        return NextResponse.json(
+            rows.map(r => ({ type: "candidate", candidate: r.candidate }))
+        );
     }
-    return NextResponse.json({});
+
+    // in-memory fallback
+    const list = mem.ices
+        .filter(i => i.roomId === roomId && (!to || i.to === to))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    return NextResponse.json(
+        list.map(r => ({ type: "candidate", candidate: r.candidate }))
+    );
 }

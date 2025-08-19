@@ -1,20 +1,20 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 export const revalidate = 0;
 
-import { NextResponse } from "next/server";
-import { getDb } from "@/lib/mongo";
+import { NextResponse } from 'next/server';
+import { getDb } from '@/lib/mongo';
 
 type AnswerDoc = {
   _id?: string;
   roomId: string;
-  to: string;      // host id
-  from: string;    // viewer id
-  sdp: any;        // зберігаємо як прислали (рядок або {type,sdp})
+  from: string;   // viewer id
+  to?: string;    // host id (адресат)
+  sdp: any;
   createdAt: string;
 };
 
-// --- in-memory fallback store ---
+// in-memory fallback
 const mem = {
   answers: [] as AnswerDoc[],
 };
@@ -24,46 +24,58 @@ async function tryDb<T>(fn: () => Promise<T>): Promise<T | null> {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json() as any;
-
-  // підтримка {sdp} або {answer}
-  const sdp = body?.sdp ?? body?.answer ?? null;
-
+  const body = (await req.json()) as Partial<AnswerDoc> & { answer?: { sdp: any } };
+  // дозволяємо як {answer:{sdp}} так і {sdp}
   const doc: AnswerDoc = {
-    roomId: String(body.roomId || ""),
-    to: String(body.to || body.hostId || body.targetId || ""),    // сумісність
-    from: String(body.from || ""),
-    sdp,
+    roomId: body.roomId!,
+    from: body.from!,
+    to: body.to,                  // <-- ВАЖЛИВО
+    sdp: (body.answer?.sdp ?? (body as any).sdp) as any,
     createdAt: new Date().toISOString(),
   };
 
   const ok = await tryDb(async () => {
     const db = await getDb();
-    await db.collection<AnswerDoc>("webrtc_answers").deleteMany({ roomId: doc.roomId, to: doc.to });
-    await db.collection<AnswerDoc>("webrtc_answers").insertOne(doc);
+    // одна активна answer на пару (roomId+to)
+    if (doc.to) {
+      await db.collection<AnswerDoc>('webrtc_answers').deleteMany({ roomId: doc.roomId, to: doc.to });
+    } else {
+      await db.collection<AnswerDoc>('webrtc_answers').deleteMany({ roomId: doc.roomId });
+    }
+    await db.collection<AnswerDoc>('webrtc_answers').insertOne(doc);
     return true;
   });
 
   if (!ok) {
-    mem.answers = mem.answers.filter(a => !(a.roomId === doc.roomId && a.to === doc.to));
+    // memory fallback
+    mem.answers = mem.answers.filter(a => a.roomId !== doc.roomId || (doc.to ? a.to !== doc.to : false));
     mem.answers.push(doc);
   }
 
-  return NextResponse.json({ ok: true, mode: ok ? "mongo" : "memory" });
+  return NextResponse.json({ ok: true, mode: ok ? 'mongo' : 'memory' });
 }
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const roomId = url.searchParams.get("roomId") || "";
-  const to = url.searchParams.get("to") || "";
+  const roomId = url.searchParams.get('roomId') || '';
+  const to = url.searchParams.get('to') || undefined;
 
+  // Mongo
   const got = await tryDb(async () => {
     const db = await getDb();
-    return await db.collection<AnswerDoc>("webrtc_answers").findOne({ roomId, to });
+    if (to) {
+      return await db.collection<AnswerDoc>('webrtc_answers')
+        .findOne({ roomId, to }, { sort: { createdAt: -1 } as any });
+    }
+    return await db.collection<AnswerDoc>('webrtc_answers')
+      .findOne({ roomId }, { sort: { createdAt: -1 } as any });
   });
 
   if (got) return NextResponse.json(got);
 
-  const m = mem.answers.find(a => a.roomId === roomId && a.to === to) || null;
-  return NextResponse.json(m ?? {});
+  // memory
+  const list = mem.answers
+    .filter(a => a.roomId === roomId && (!to || a.to === to))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return NextResponse.json(list[0] ?? {});
 }
