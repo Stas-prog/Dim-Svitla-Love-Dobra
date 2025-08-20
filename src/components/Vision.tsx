@@ -19,13 +19,11 @@ function genId() {
 }
 
 export default function Vision({ initialRoomId, initialMode }: VisionProps) {
-    // базові стейти
     const [mode, setMode] = useState<Mode>(initialMode ?? "host");
     const [roomId, setRoomId] = useState<string>(initialRoomId ?? "");
     const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
     const [err, setErr] = useState<string>("");
 
-    // hydration-safe
     const [mounted, setMounted] = useState(false);
     const [viewerHref, setViewerHref] = useState<string>("");
 
@@ -36,18 +34,17 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
-    // POLL таймери (ref, щоб чистити гарантовано)
+    // timers
     const offerTimerRef = useRef<number | null>(null);
     const answerTimerRef = useRef<number | null>(null);
+    const iceTimerRef = useRef<number | null>(null);
 
     useEffect(() => { setMounted(true); }, []);
 
-    // URL → ініціалізація mode/roomId тільки якщо не прийшли з пропсів
     useEffect(() => {
         if (!mounted) return;
 
         clientIdRef.current = getClientId();
-
         const url = new URL(window.location.href);
 
         if (initialMode == null) {
@@ -68,7 +65,6 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         }
     }, [mounted]); // eslint-disable-line
 
-    // формуємо лінк глядача лише на клієнті
     useEffect(() => {
         if (!mounted) return;
         try {
@@ -81,19 +77,19 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         }
     }, [mounted, roomId]);
 
+    function clearTimers() {
+        if (offerTimerRef.current) { clearInterval(offerTimerRef.current); offerTimerRef.current = null; }
+        if (answerTimerRef.current) { clearInterval(answerTimerRef.current); answerTimerRef.current = null; }
+        if (iceTimerRef.current) { clearInterval(iceTimerRef.current); iceTimerRef.current = null; }
+    }
+
     function destroyPeer() {
         try { peerRef.current?.destroy(); } catch { }
         peerRef.current = null;
     }
 
-    function clearTimers() {
-        if (offerTimerRef.current) { clearInterval(offerTimerRef.current); offerTimerRef.current = null; }
-        if (answerTimerRef.current) { clearInterval(answerTimerRef.current); answerTimerRef.current = null; }
-    }
-
     useEffect(() => {
         return () => {
-            // unmount
             clearTimers();
             destroyPeer();
             try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch { }
@@ -132,21 +128,19 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         return obj && obj.type === expected && typeof obj.sdp === "string";
     }
 
-    // viewer: poll OFFER
+    // ---- POLL HELPERS
     async function pollOfferOnce(peer: Peer.Instance, room: string) {
         const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(room)}`, { cache: "no-store" });
         if (!r.ok) return false;
         const doc = await r.json();
         const sdp = doc?.sdp ?? doc?.offer ?? doc?.payload ?? null;
         if (isValidSdp(sdp, "offer")) {
-            // peer ще живий?
             if (peerRef.current === peer) peer.signal(sdp);
             return true;
         }
         return false;
     }
 
-    // host: poll ANSWER
     async function pollAnswerOnce(peer: Peer.Instance, room: string, hostId: string) {
         const r = await fetch(
             `/api/webrtc/answer?roomId=${encodeURIComponent(room)}&to=${encodeURIComponent(hostId)}`,
@@ -162,11 +156,28 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         return false;
     }
 
+    async function pollIceOnce(peer: Peer.Instance, room: string, meId: string) {
+        const r = await fetch(
+            `/api/webrtc/candidate?roomId=${encodeURIComponent(room)}&to=${encodeURIComponent(meId)}`,
+            { cache: "no-store" }
+        );
+        if (!r.ok) return;
+        const arr = await r.json();
+        if (Array.isArray(arr)) {
+            for (const item of arr) {
+                if (item?.type === "candidate" && item.candidate) {
+                    // simple-peer приймає як {type:'candidate', candidate: RTCIceCandidateInit}
+                    if (peerRef.current === peer) peer.signal(item);
+                }
+            }
+        }
+    }
+
     async function handleConnect() {
         setErr("");
         setStatus("connecting");
 
-        const id = await ensureRoomId(); // ← використовуємо ЦЕЙ id надалі
+        const id = await ensureRoomId();
 
         clearTimers();
         destroyPeer();
@@ -186,30 +197,27 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
 
         peerRef.current = peer;
 
-        // viewer слухає remote stream
         if (!isHost) {
             peer.on("stream", (remote: MediaStream) => {
                 const el = remoteVideoRef.current;
                 if (!el) return;
                 el.srcObject = remote;
-                el.play().catch(() => { /* autoplay guards */ });
+                el.play().catch(() => { });
             });
         } else {
-            // якщо хост не вмикав камеру — ввімкнемо тут
             if (!streamRef.current) {
                 try {
                     const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     streamRef.current = media;
                     if (localVideoRef.current) localVideoRef.current.srcObject = media;
-                    // simple-peer вже отримує stream через опцію stream, але додатково addTrack — ок
-                    media.getTracks().forEach((t) => peer.addTrack(t, media));
+                    media.getTracks().forEach((t) => peer.addTrack(t, media)); // викличе повторну оффер-неґоціацію
                 } catch (e: any) {
                     setErr(e?.message || "getUserMedia failed");
                 }
             }
         }
 
-        // сигналізація
+        // вихідні сигнали (offer/answer/ice)
         peer.on("signal", async (data: SignalData) => {
             try {
                 if ((data as any).type === "offer") {
@@ -233,7 +241,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         body: JSON.stringify({
                             roomId: id,
                             from: clientIdRef.current,
-                            to: undefined,
+                            to: undefined, // широкомовно
                             ice: { type: "candidate", candidate: (data as any).candidate },
                         }),
                     });
@@ -245,9 +253,8 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             }
         });
 
-        // запуск POLL з коректним room=id
+        // запуск трьох POLL-циклів з єдиним room=id
         if (!isHost) {
-            // viewer чекає offer
             offerTimerRef.current = window.setInterval(async () => {
                 try {
                     const got = await pollOfferOnce(peer, id);
@@ -258,7 +265,6 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 } catch { }
             }, 1200);
         } else {
-            // host чекає answer
             answerTimerRef.current = window.setInterval(async () => {
                 try {
                     const got = await pollAnswerOnce(peer, id, clientIdRef.current);
@@ -270,12 +276,14 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             }, 1200);
         }
 
+        // ICE — обидві сторони постійно підсмоктують
+        iceTimerRef.current = window.setInterval(async () => {
+            try { await pollIceOnce(peer, id, clientIdRef.current); } catch { }
+        }, 900);
+
         peer.on("connect", () => setStatus("connected"));
         peer.on("error", (e) => { setErr(e.message || "peer error"); setStatus("error"); });
-        peer.on("close", () => {
-            setStatus("idle");
-            clearTimers();
-        });
+        peer.on("close", () => { setStatus("idle"); clearTimers(); });
     }
 
     function handleStop() {
