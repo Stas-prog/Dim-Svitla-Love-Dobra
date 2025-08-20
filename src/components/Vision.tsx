@@ -294,12 +294,20 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         try {
             const el = mode === "host" ? localVideoRef.current : remoteVideoRef.current;
             if (!el) throw new Error("video element not ready");
+
+            // готуємо полотно
             const canvas = document.createElement("canvas");
-            canvas.width = el.videoWidth || 640;
-            canvas.height = el.videoHeight || 360;
+            const w = el.videoWidth || 640;
+            const h = el.videoHeight || 360;
+            canvas.width = w;
+            canvas.height = h;
+
             const ctx = canvas.getContext("2d");
             if (!ctx) throw new Error("canvas ctx error");
-            ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
+
+            ctx.drawImage(el, 0, 0, w, h);
+
+            // JPEG 0.8 — оптимально
             const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
 
             const res = await fetch("/api/vision/snapshot", {
@@ -308,14 +316,21 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 body: JSON.stringify({
                     roomId: await ensureRoomId(),
                     by: clientIdRef.current,
-                    imageBase64: dataUrl,
+                    imageDataUrl: dataUrl, // <— ключ, який читає API
                 }),
             });
-            if (!res.ok) throw new Error("snapshot save failed");
+
+            if (!res.ok) {
+                const j = await res.json().catch(() => ({}));
+                throw new Error(j?.error || "snapshot save failed");
+            }
+            // необов'язково: підсвітимо статус
+            setErr("");
         } catch (e: any) {
             setErr(e.message || "snapshot error");
         }
     }
+
 
     return (
         <div className="rounded-2xl p-4 my-6 bg-slate-900 text-slate-50 shadow vision-ui">
