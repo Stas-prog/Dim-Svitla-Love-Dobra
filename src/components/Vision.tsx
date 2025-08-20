@@ -11,10 +11,14 @@ type VisionProps = {
     initialMode?: Mode;
 };
 
+type SdpDoc = {
+    roomId: string;
+    from: string;
+    sdp: { type: "offer" | "answer"; sdp: string };
+};
+
 function genId() {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-        return crypto.randomUUID();
-    }
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
@@ -30,11 +34,11 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     const clientIdRef = useRef<string>("");
     const peerRef = useRef<Peer.Instance | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    const hostIdRef = useRef<string>(""); // важливо для viewer -> to=hostId
 
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
-    // timers
     const offerTimerRef = useRef<number | null>(null);
     const answerTimerRef = useRef<number | null>(null);
     const iceTimerRef = useRef<number | null>(null);
@@ -45,8 +49,8 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         if (!mounted) return;
 
         clientIdRef.current = getClientId();
-        const url = new URL(window.location.href);
 
+        const url = new URL(window.location.href);
         if (initialMode == null) {
             const qpMode = (url.searchParams.get("mode") as Mode) || mode;
             setMode(qpMode);
@@ -77,25 +81,14 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         }
     }, [mounted, roomId]);
 
-    function clearTimers() {
-        if (offerTimerRef.current) { clearInterval(offerTimerRef.current); offerTimerRef.current = null; }
-        if (answerTimerRef.current) { clearInterval(answerTimerRef.current); answerTimerRef.current = null; }
-        if (iceTimerRef.current) { clearInterval(iceTimerRef.current); iceTimerRef.current = null; }
-    }
-
     function destroyPeer() {
         try { peerRef.current?.destroy(); } catch { }
         peerRef.current = null;
-    }
 
-    useEffect(() => {
-        return () => {
-            clearTimers();
-            destroyPeer();
-            try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch { }
-            streamRef.current = null;
-        };
-    }, []);
+        if (offerTimerRef.current) { window.clearInterval(offerTimerRef.current); offerTimerRef.current = null; }
+        if (answerTimerRef.current) { window.clearInterval(answerTimerRef.current); answerTimerRef.current = null; }
+        if (iceTimerRef.current) { window.clearInterval(iceTimerRef.current); iceTimerRef.current = null; }
+    }
 
     async function ensureRoomId(): Promise<string> {
         if (roomId) return roomId;
@@ -121,65 +114,11 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         }
     }
 
-    function isValidSdp(
-        obj: any,
-        expected: "offer" | "answer"
-    ): obj is { type: "offer" | "answer"; sdp: string } {
-        return obj && obj.type === expected && typeof obj.sdp === "string";
-    }
-
-    // ---- POLL HELPERS
-    async function pollOfferOnce(peer: Peer.Instance, room: string) {
-        const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(room)}`, { cache: "no-store" });
-        if (!r.ok) return false;
-        const doc = await r.json();
-        const sdp = doc?.sdp ?? doc?.offer ?? doc?.payload ?? null;
-        if (isValidSdp(sdp, "offer")) {
-            if (peerRef.current === peer) peer.signal(sdp);
-            return true;
-        }
-        return false;
-    }
-
-    async function pollAnswerOnce(peer: Peer.Instance, room: string, hostId: string) {
-        const r = await fetch(
-            `/api/webrtc/answer?roomId=${encodeURIComponent(room)}&to=${encodeURIComponent(hostId)}`,
-            { cache: "no-store" }
-        );
-        if (!r.ok) return false;
-        const doc = await r.json();
-        const sdp = doc?.sdp ?? doc?.answer ?? doc?.payload ?? null;
-        if (isValidSdp(sdp, "answer")) {
-            if (peerRef.current === peer) peer.signal(sdp);
-            return true;
-        }
-        return false;
-    }
-
-    async function pollIceOnce(peer: Peer.Instance, room: string, meId: string) {
-        const r = await fetch(
-            `/api/webrtc/candidate?roomId=${encodeURIComponent(room)}&from=${encodeURIComponent(meId)}`,
-            { cache: "no-store" }
-        );
-        if (!r.ok) return;
-        const arr = await r.json();
-        if (Array.isArray(arr)) {
-            for (const item of arr) {
-                if (item?.type === "candidate" && item.candidate) {
-                    if (peerRef.current === peer) peer.signal(item);
-                }
-            }
-        }
-    }
-
-
     async function handleConnect() {
         setErr("");
         setStatus("connecting");
 
         const id = await ensureRoomId();
-
-        clearTimers();
         destroyPeer();
 
         const isHost = mode === "host";
@@ -192,7 +131,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 ],
                 iceTransportPolicy: "all",
             },
-            stream: isHost ? streamRef.current ?? undefined : undefined,
+            stream: isHost ? (streamRef.current ?? undefined) : undefined,
         });
 
         peerRef.current = peer;
@@ -210,17 +149,17 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     streamRef.current = media;
                     if (localVideoRef.current) localVideoRef.current.srcObject = media;
-                    media.getTracks().forEach((t) => peer.addTrack(t, media)); // викличе повторну оффер-неґоціацію
+                    media.getTracks().forEach((t) => peer.addTrack(t, media));
                 } catch (e: any) {
                     setErr(e?.message || "getUserMedia failed");
                 }
             }
         }
 
-        // вихідні сигнали (offer/answer/ice)
         peer.on("signal", async (data: SignalData) => {
             try {
                 if ((data as any).type === "offer") {
+                    // HOST -> зберегти offer (з from = hostId)
                     const res = await fetch("/api/webrtc/offer", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
@@ -228,10 +167,16 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     });
                     if (!res.ok) throw new Error("offer save failed");
                 } else if ((data as any).type === "answer") {
+                    // VIEWER -> зберегти answer (to = hostIdRef.current)
                     const res = await fetch("/api/webrtc/answer", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
-                        body: JSON.stringify({ roomId: id, answer: data, from: clientIdRef.current }),
+                        body: JSON.stringify({
+                            roomId: id,
+                            answer: data,
+                            from: clientIdRef.current,
+                            to: hostIdRef.current || "", // може бути встановлений під час pollOffer
+                        }),
                     });
                     if (!res.ok) throw new Error("answer save failed");
                 } else if ((data as any).candidate) {
@@ -240,20 +185,70 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         headers: { "content-type": "application/json" },
                         body: JSON.stringify({
                             roomId: id,
-                            from: clientIdRef.current,       // <-- тільки from
+                            from: clientIdRef.current,
                             ice: { type: "candidate", candidate: (data as any).candidate },
                         }),
                     });
                     if (!res.ok) throw new Error("ice save failed");
                 }
-
             } catch (e: any) {
                 console.error("signal POST error", e);
                 setErr(e.message || "signal error");
             }
         });
 
-        // запуск трьох POLL-циклів з єдиним room=id
+        function isValidSdp(obj: any, expected: "offer" | "answer"): obj is { type: "offer" | "answer"; sdp: string } {
+            return obj && obj.type === expected && typeof obj.sdp === "string";
+        }
+
+        // --- viewer: poll OFFER (повний документ, щоб взяти hostId=from)
+        async function pollOfferOnce(peerInst: Peer.Instance, room: string) {
+            const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(room)}`, { cache: "no-store" });
+            if (!r.ok) return false;
+            const doc = (await r.json()) as Partial<SdpDoc> | null;
+            if (doc && doc.sdp && isValidSdp(doc.sdp, "offer")) {
+                if (doc.from) hostIdRef.current = doc.from; // ЗАПАМ'ЯТАТИ hostId
+                if (peerRef.current === peerInst) peerInst.signal(doc.sdp);
+                return true;
+            }
+            return false;
+        }
+
+        // --- host: poll ANSWER (цільово to=hostId)
+        async function pollAnswerOnce(peerInst: Peer.Instance, room: string, hostId: string) {
+            if (!hostId) return false;
+            const r = await fetch(
+                `/api/webrtc/answer?roomId=${encodeURIComponent(room)}&to=${encodeURIComponent(hostId)}`,
+                { cache: "no-store" }
+            );
+            if (!r.ok) return false;
+            const doc = await r.json();
+            const sdp = doc?.sdp ?? null;
+            if (isValidSdp(sdp, "answer")) {
+                if (peerRef.current === peerInst) peerInst.signal(sdp);
+                return true;
+            }
+            return false;
+        }
+
+        // --- ICE: підтягувати «всі, крім моїх»
+        async function pollIceOnce(peerInst: Peer.Instance, room: string, meId: string) {
+            const r = await fetch(
+                `/api/webrtc/candidate?roomId=${encodeURIComponent(room)}&from=${encodeURIComponent(meId)}`,
+                { cache: "no-store" }
+            );
+            if (!r.ok) return;
+            const arr = await r.json();
+            if (Array.isArray(arr)) {
+                for (const item of arr) {
+                    if (item?.type === "candidate" && item.candidate) {
+                        if (peerRef.current === peerInst) peerInst.signal(item);
+                    }
+                }
+            }
+        }
+
+        // Запускаємо пулінг
         if (!isHost) {
             offerTimerRef.current = window.setInterval(async () => {
                 try {
@@ -263,7 +258,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         offerTimerRef.current = null;
                     }
                 } catch { }
-            }, 1200);
+            }, 1200) as any;
         } else {
             answerTimerRef.current = window.setInterval(async () => {
                 try {
@@ -273,23 +268,23 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         answerTimerRef.current = null;
                     }
                 } catch { }
-            }, 1200);
+            }, 1200) as any;
         }
 
-        // ICE — обидві сторони постійно підсмоктують
         iceTimerRef.current = window.setInterval(async () => {
-            try { await pollIceOnce(peer, id, clientIdRef.current); } catch { }
-        }, 900);
+            try {
+                await pollIceOnce(peer, id, clientIdRef.current);
+            } catch { }
+        }, 900) as any;
 
         peer.on("connect", () => setStatus("connected"));
         peer.on("error", (e) => { setErr(e.message || "peer error"); setStatus("error"); });
-        peer.on("close", () => { setStatus("idle"); clearTimers(); });
+        peer.on("close", () => setStatus("idle"));
     }
 
     function handleStop() {
         setErr("");
         setStatus("idle");
-        clearTimers();
         destroyPeer();
         try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch { }
         streamRef.current = null;

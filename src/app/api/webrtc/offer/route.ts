@@ -5,43 +5,31 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
 
+type Sdp = { type: "offer" | "answer"; sdp: string };
+
 type OfferDoc = {
     _id?: string;
     roomId: string;
-    from: string;     // host id
-    sdp: { type: "offer"; sdp: string };
+    from: string;         // hostId
+    sdp: Sdp;             // {type:"offer", sdp:"..."}
     createdAt: string;
 };
 
 // in-memory fallback
-const mem = {
-    offers: [] as OfferDoc[],
-};
+const mem = { offers: [] as OfferDoc[] };
 
 async function tryDb<T>(fn: () => Promise<T>): Promise<T | null> {
     try { return await fn(); } catch { return null; }
 }
 
-function normalizeOfferBody(body: any): OfferDoc {
-    const roomId = String(body.roomId || "");
-    const from = String(body.from || "");
-    const raw = body.sdp ?? body.offer ?? body.payload ?? body;
-
-    if (!raw || raw.type !== "offer" || typeof raw.sdp !== "string") {
-        throw new Error("Invalid offer payload");
-    }
-
-    return {
-        roomId,
-        from,
-        sdp: { type: "offer", sdp: raw.sdp },
+export async function POST(req: Request) {
+    const body = await req.json() as { roomId: string; from: string; offer: Sdp };
+    const doc: OfferDoc = {
+        roomId: body.roomId,
+        from: body.from,
+        sdp: body.offer,
         createdAt: new Date().toISOString(),
     };
-}
-
-export async function POST(req: Request) {
-    const body = await req.json();
-    const doc = normalizeOfferBody(body);
 
     const ok = await tryDb(async () => {
         const db = await getDb();
@@ -70,5 +58,5 @@ export async function GET(req: Request) {
     if (got) return NextResponse.json(got);
 
     const m = mem.offers.find(o => o.roomId === roomId) || null;
-    return NextResponse.json(m ?? {}); // клієнт зобов'язаний перевірити форму!
+    return NextResponse.json(m ?? {});
 }
