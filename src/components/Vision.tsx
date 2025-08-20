@@ -186,43 +186,101 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             }
         });
 
-        const poll = async () => {
-            try {
-                if (isHost) {
-                    const ansRes = await fetch(`/api/webrtc/answer?roomId=${encodeURIComponent(id)}&to=${encodeURIComponent(clientIdRef.current)}`, { cache: "no-store" });
-                    if (ansRes.ok) {
-                        const ans = await ansRes.json();
-                        if ((ans as any)?.type === "answer" || (ans as any)?.sdp) {
-                            peer.signal(ans);
-                        }
-                    }
-                } else {
-                    const offRes = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(id)}`, { cache: "no-store" });
-                    if (offRes.ok) {
-                        const off = await offRes.json();
-                        if ((off as any)?.type === "offer" || (off as any)?.sdp) {
-                            peer.signal(off);
-                        }
-                    }
-                }
+        // const poll = async () => {
+        //     try {
+        //         if (isHost) {
+        //             const ansRes = await fetch(`/api/webrtc/answer?roomId=${encodeURIComponent(id)}&to=${encodeURIComponent(clientIdRef.current)}`, { cache: "no-store" });
+        //             if (ansRes.ok) {
+        //                 const ans = await ansRes.json();
+        //                 if ((ans as any)?.type === "answer" || (ans as any)?.sdp) {
+        //                     peer.signal(ans);
+        //                 }
+        //             }
+        //         } else {
+        //             const offRes = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(id)}`, { cache: "no-store" });
+        //             if (offRes.ok) {
+        //                 const off = await offRes.json();
+        //                 if ((off as any)?.type === "offer" || (off as any)?.sdp) {
+        //                     peer.signal(off);
+        //                 }
+        //             }
+        //         }
 
-                const iceRes = await fetch(`/api/webrtc/candidate?roomId=${encodeURIComponent(id)}&to=${encodeURIComponent(clientIdRef.current)}`, { cache: "no-store" });
-                if (iceRes.ok) {
-                    const arr = await iceRes.json();
-                    if (Array.isArray(arr)) {
-                        arr.forEach((item) => {
-                            if (item?.type === "candidate" && item.candidate) {
-                                peer.signal(item);
-                            }
-                        });
-                    }
-                }
-            } catch { }
-        };
+        //         const iceRes = await fetch(`/api/webrtc/candidate?roomId=${encodeURIComponent(id)}&to=${encodeURIComponent(clientIdRef.current)}`, { cache: "no-store" });
+        //         if (iceRes.ok) {
+        //             const arr = await iceRes.json();
+        //             if (Array.isArray(arr)) {
+        //                 arr.forEach((item) => {
+        //                     if (item?.type === "candidate" && item.candidate) {
+        //                         peer.signal(item);
+        //                     }
+        //                 });
+        //             }
+        //         }
+        //     } catch { }
+        // };
 
-        const interval = window.setInterval(poll, 1500);
-        peer.once("close", () => window.clearInterval(interval));
-        peer.once("error", () => window.clearInterval(interval));
+        function isValidSdp(obj: any, expected: "offer" | "answer"): obj is { type: "offer" | "answer"; sdp: string } {
+            return obj && obj.type === expected && typeof obj.sdp === "string";
+        }
+
+        // --- viewer: poll OFFER ---
+        async function pollOfferOnce(peer: any, roomId: string) {
+            const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(roomId)}`, { cache: "no-store" });
+            if (!r.ok) return false;
+            const doc = await r.json();
+            const sdp = doc?.sdp ?? doc?.offer ?? doc?.payload ?? null;
+            if (isValidSdp(sdp, "offer")) {
+                peer.signal(sdp);
+                return true;
+            }
+            return false;
+        }
+
+        // --- host: poll ANSWER ---
+        async function pollAnswerOnce(peer: any, roomId: string, hostId: string) {
+            const r = await fetch(`/api/webrtc/answer?roomId=${encodeURIComponent(roomId)}&to=${encodeURIComponent(hostId)}`, { cache: "no-store" });
+            if (!r.ok) return false;
+            const doc = await r.json();
+            const sdp = doc?.sdp ?? doc?.answer ?? doc?.payload ?? null;
+            if (isValidSdp(sdp, "answer")) {
+                peer.signal(sdp);
+                return true;
+            }
+            return false;
+        }
+
+
+        // const interval = window.setInterval(poll, 1500);
+        const offerTimer: any = { current: null }
+        const answerTimer: any = { current: null }
+
+        if (!isHost) {
+            // viewer чекає offer
+            offerTimer.current = window.setInterval(async () => {
+                try {
+                    const got = await pollOfferOnce(peer, roomId);
+                    if (got && offerTimer.current) {
+                        clearInterval(offerTimer.current);
+                        offerTimer.current = null;
+                    }
+                } catch { }
+            }, 1500);
+        } else {
+            // host чекає answer
+            answerTimer.current = window.setInterval(async () => {
+                try {
+                    const got = await pollAnswerOnce(peer, roomId, clientIdRef.current);
+                    if (got && answerTimer.current) {
+                        clearInterval(answerTimer.current);
+                        answerTimer.current = null;
+                    }
+                } catch { }
+            }, 1500);
+        }
+
+        // peer.once("close", () => window.clearInterval(interval));
+        // peer.once("error", () => window.clearInterval(interval));
 
         peer.on("connect", () => setStatus("connected"));
         peer.on("error", (e) => { setErr(e.message || "peer error"); setStatus("error"); });

@@ -8,12 +8,12 @@ import { getDb } from "@/lib/mongo";
 type OfferDoc = {
     _id?: string;
     roomId: string;
-    from: string;          // host id
-    sdp: any;              // зберігаємо як прислали (рядок або {type,sdp})
+    from: string;     // host id
+    sdp: { type: "offer"; sdp: string };
     createdAt: string;
 };
 
-// --- in-memory fallback store ---
+// in-memory fallback
 const mem = {
     offers: [] as OfferDoc[],
 };
@@ -22,21 +22,30 @@ async function tryDb<T>(fn: () => Promise<T>): Promise<T | null> {
     try { return await fn(); } catch { return null; }
 }
 
-export async function POST(req: Request) {
-    const body = await req.json() as any;
+function normalizeOfferBody(body: any): OfferDoc {
+    const roomId = String(body.roomId || "");
+    const from = String(body.from || "");
+    const raw = body.sdp ?? body.offer ?? body.payload ?? body;
 
-    // підтримуємо обидва варіанти на вхід: {sdp} або {offer}
-    const sdp = body?.sdp ?? body?.offer ?? null;
-    const doc: OfferDoc = {
-        roomId: String(body.roomId || ""),
-        from: String(body.from || ""),
-        sdp,
+    if (!raw || raw.type !== "offer" || typeof raw.sdp !== "string") {
+        throw new Error("Invalid offer payload");
+    }
+
+    return {
+        roomId,
+        from,
+        sdp: { type: "offer", sdp: raw.sdp },
         createdAt: new Date().toISOString(),
     };
+}
+
+export async function POST(req: Request) {
+    const body = await req.json();
+    const doc = normalizeOfferBody(body);
 
     const ok = await tryDb(async () => {
         const db = await getDb();
-        await db.collection<OfferDoc>("webrtc_offers").deleteMany({ roomId: doc.roomId }); // одна активна
+        await db.collection<OfferDoc>("webrtc_offers").deleteMany({ roomId: doc.roomId });
         await db.collection<OfferDoc>("webrtc_offers").insertOne(doc);
         return true;
     });
@@ -61,5 +70,5 @@ export async function GET(req: Request) {
     if (got) return NextResponse.json(got);
 
     const m = mem.offers.find(o => o.roomId === roomId) || null;
-    return NextResponse.json(m ?? {});
+    return NextResponse.json(m ?? {}); // клієнт зобов'язаний перевірити форму!
 }
