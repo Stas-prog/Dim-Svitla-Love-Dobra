@@ -158,7 +158,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
 
     async function pollIceOnce(peer: Peer.Instance, room: string, meId: string) {
         const r = await fetch(
-            `/api/webrtc/candidate?roomId=${encodeURIComponent(room)}&to=${encodeURIComponent(meId)}`,
+            `/api/webrtc/candidate?roomId=${encodeURIComponent(room)}&from=${encodeURIComponent(meId)}`,
             { cache: "no-store" }
         );
         if (!r.ok) return;
@@ -166,12 +166,12 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         if (Array.isArray(arr)) {
             for (const item of arr) {
                 if (item?.type === "candidate" && item.candidate) {
-                    // simple-peer приймає як {type:'candidate', candidate: RTCIceCandidateInit}
                     if (peerRef.current === peer) peer.signal(item);
                 }
             }
         }
     }
+
 
     async function handleConnect() {
         setErr("");
@@ -240,13 +240,13 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         headers: { "content-type": "application/json" },
                         body: JSON.stringify({
                             roomId: id,
-                            from: clientIdRef.current,
-                            to: undefined, // широкомовно
+                            from: clientIdRef.current,       // <-- тільки from
                             ice: { type: "candidate", candidate: (data as any).candidate },
                         }),
                     });
                     if (!res.ok) throw new Error("ice save failed");
                 }
+
             } catch (e: any) {
                 console.error("signal POST error", e);
                 setErr(e.message || "signal error");
