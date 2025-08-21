@@ -390,6 +390,31 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     <video ref={remoteVideoRef} autoPlay playsInline className="w-full rounded" />
                 </div>
             </div>
+            {/* Посилання до списку кімнат */}
+            <div className="rounded-lg bg-slate-800 p-3 mt-4">
+                <div className="text-sm font-semibold mb-2">🗂 Rooms & gallery</div>
+                <p className="text-xs text-slate-300 mb-3">
+                    Всі кімнати з останніми фото тепер на окремій сторінці.
+                </p>
+
+                <a
+                    className="inline-block px-3 py-2 rounded bg-sky-400 text-black hover:bg-sky-300"
+                    href="/vision/rooms"
+                >
+                    🗂 Відкрити список кімнат
+                </a>
+
+                {roomId && (
+                    <a
+                        className="inline-block ml-2 px-3 py-2 rounded bg-purple-400 text-black hover:bg-purple-300"
+                        href={`/vision/${encodeURIComponent(roomId)}/snaps`}
+                        target="_blank"
+                    >
+                        📷 Фото цієї кімнати
+                    </a>
+                )}
+            </div>
+
         </div>
     );
 }
