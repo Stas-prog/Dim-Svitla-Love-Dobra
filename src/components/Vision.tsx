@@ -314,7 +314,15 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     imageBase64: dataUrl,
                 }),
             });
+            const res1 = await fetch("/api/snaps", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ roomId: await ensureRoomId(), image: dataUrl }),
+            });
+
             if (!res.ok) throw new Error("snapshot save failed");
+            setErr("");
+            if (!res1.ok) throw new Error("snapshot save failed");
             setErr("");
         } catch (e: any) {
             setErr(e.message || "snapshot error");
@@ -360,6 +368,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     <div className="break-all text-xs bg-slate-900 rounded p-2 border border-slate-700" suppressHydrationWarning>
                         {mounted ? (viewerHref || "—") : "—"}
                     </div>
+
                 </div>
 
                 <div className="rounded-lg bg-slate-800 p-3 flex items-center gap-2 flex-wrap">
@@ -379,6 +388,25 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     </button>
                 </div>
             </div>
+            <div className="mt-2 flex gap-2 flex-wrap">
+                <a
+                    href="/snaps"
+                    className="px-3 py-1 rounded bg-black text-amber-700 text-sm"
+                    target="_blank"
+                >
+                    🗂 Відкрити список кімнат
+                </a>
+                {roomId && (
+                    <a
+                        href={`/snaps/${encodeURIComponent(roomId)}`}
+                        className="px-3 py-1 rounded bg-black text-amber-700 text-sm"
+                        target="_blank"
+                    >
+                        🖼 Фото цієї кімнати
+                    </a>
+                )}
+            </div>
+
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-lg bg-slate-800 p-2">
@@ -398,7 +426,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 </p>
 
                 <a
-                    className="inline-block px-3 py-2 rounded bg-sky-400 text-black hover:bg-sky-300"
+                    className="inline-block px-3 py-2 rounded bg-slate-600 text-red-700 hover:bg-sky-300"
                     href="/vision/rooms"
                 >
                     🗂 Відкрити список кімнат
@@ -406,13 +434,14 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
 
                 {roomId && (
                     <a
-                        className="inline-block ml-2 px-3 py-2 rounded bg-purple-400 text-black hover:bg-purple-300"
-                        href={`/vision/${encodeURIComponent(roomId)}/snaps`}
+                        className="inline-block mt-3 text-xs underline text-sky-300"
+                        href={`/snaps/${encodeURIComponent(roomId)}`}
                         target="_blank"
                     >
-                        📷 Фото цієї кімнати
+                        👉 Відкрити фото цієї кімнати
                     </a>
                 )}
+
             </div>
 
         </div>

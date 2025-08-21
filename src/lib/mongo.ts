@@ -10,3 +10,4 @@ export async function getDb() {
     const dbName = process.env.MONGODB_DB || "dim_svitla";
     return client.db(dbName);
 }
+export { clientPromise }
