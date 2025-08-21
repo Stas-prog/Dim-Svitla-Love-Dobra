@@ -5,33 +5,18 @@ import Peer, { SignalData } from "simple-peer";
 import { getClientId } from "@/lib/clientId";
 
 type Mode = "host" | "viewer";
-type VisionProps = { initialRoomId?: string; initialMode?: Mode };
-type RecentRoom = { roomId: string; lastSeen: string };
+
+type VisionProps = {
+    initialRoomId?: string;
+    initialMode?: Mode;
+};
+
+type Sdp = { type: "offer" | "answer"; sdp: string };
+type SdpDoc = { roomId: string; from: string; sdp: Sdp };
 
 function genId() {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-        return crypto.randomUUID();
-    }
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-const LS_KEY = "vision-recent-rooms";
-
-function loadLocalRooms(): RecentRoom[] {
-    if (typeof window === "undefined") return [];
-    try {
-        const raw = localStorage.getItem(LS_KEY);
-        const arr = raw ? (JSON.parse(raw) as RecentRoom[]) : [];
-        return Array.isArray(arr) ? arr : [];
-    } catch { return []; }
-}
-
-function saveLocalRoom(roomId: string) {
-    if (typeof window === "undefined") return;
-    const now = new Date().toISOString();
-    const arr = loadLocalRooms().filter(r => r.roomId !== roomId);
-    arr.unshift({ roomId, lastSeen: now });
-    localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0, 30)));
 }
 
 export default function Vision({ initialRoomId, initialMode }: VisionProps) {
@@ -43,18 +28,21 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     const [mounted, setMounted] = useState(false);
     const [viewerHref, setViewerHref] = useState<string>("");
 
-    const [recent, setRecent] = useState<RecentRoom[]>([]);
-
     const clientIdRef = useRef<string>("");
     const peerRef = useRef<Peer.Instance | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    const hostIdRef = useRef<string>("");
 
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
+    const offerTimerRef = useRef<number | null>(null);
+    const answerTimerRef = useRef<number | null>(null);
+    const iceTimerRef = useRef<number | null>(null);
+
     useEffect(() => { setMounted(true); }, []);
 
-    // URL -> mode/roomId (лише якщо не задали пропсами)
+    // URL -> mode/roomId
     useEffect(() => {
         if (!mounted) return;
 
@@ -70,21 +58,16 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             if (qpId) {
                 setRoomId(qpId);
             } else {
-                // якщо Viewer без id — спробуємо підхопити останню
-                if (mode === "viewer") {
-                    const local = loadLocalRooms();
-                    if (local[0]) {
-                        setRoomId(local[0].roomId);
-                        url.searchParams.set("mode", "viewer");
-                        url.searchParams.set("roomId", local[0].roomId);
-                        window.history.replaceState({}, "", url.toString());
-                    }
-                }
+                const id = genId();
+                setRoomId(id);
+                url.searchParams.set("roomId", id);
+                if (!url.searchParams.get("mode")) url.searchParams.set("mode", initialMode ?? mode);
+                window.history.replaceState({}, "", url.toString());
             }
         }
     }, [mounted]); // eslint-disable-line
 
-    // viewer link (тільки на клієнті)
+    // Формуємо viewer link із поточним roomId
     useEffect(() => {
         if (!mounted) return;
         try {
@@ -92,63 +75,30 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             url.searchParams.set("mode", "viewer");
             if (roomId) url.searchParams.set("roomId", roomId);
             setViewerHref(url.toString());
-        } catch { setViewerHref(""); }
+        } catch {
+            setViewerHref("");
+        }
     }, [mounted, roomId]);
-
-    // підвантажити останні кімнати із сервера та змерджити з локальними
-    useEffect(() => {
-        if (!mounted) return;
-
-        (async () => {
-            try {
-                const res = await fetch("/api/vision/rooms?limit=20", { cache: "no-store" });
-                const j = await res.json().catch(() => ({}));
-                const server: RecentRoom[] = Array.isArray(j?.items) ? j.items : [];
-                const local = loadLocalRooms();
-
-                const map = new Map<string, string>();
-                for (const r of [...server, ...local]) {
-                    const cur = map.get(r.roomId);
-                    if (!cur || r.lastSeen > cur) map.set(r.roomId, r.lastSeen);
-                }
-                const merged: RecentRoom[] = Array.from(map.entries())
-                    .map(([roomId, lastSeen]) => ({ roomId, lastSeen }))
-                    .sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : -1))
-                    .slice(0, 30);
-
-                setRecent(merged);
-
-                // якщо ми viewer без roomId — підхопимо найсвіжіший
-                if (mode === "viewer" && !roomId && merged[0]) {
-                    setRoomId(merged[0].roomId);
-                    const url = new URL(window.location.href);
-                    url.searchParams.set("mode", "viewer");
-                    url.searchParams.set("roomId", merged[0].roomId);
-                    window.history.replaceState({}, "", url.toString());
-                }
-            } catch { /* тихо */ }
-        })();
-    }, [mounted, mode]); // eslint-disable-line
-
-    function pushRoomToUrl(id: string, m: Mode = mode) {
-        if (!mounted) return;
-        const url = new URL(window.location.href);
-        if (id) url.searchParams.set("roomId", id); else url.searchParams.delete("roomId");
-        url.searchParams.set("mode", m);
-        window.history.replaceState({}, "", url.toString());
-    }
 
     function destroyPeer() {
         try { peerRef.current?.destroy(); } catch { }
         peerRef.current = null;
+
+        if (offerTimerRef.current) { window.clearInterval(offerTimerRef.current); offerTimerRef.current = null; }
+        if (answerTimerRef.current) { window.clearInterval(answerTimerRef.current); answerTimerRef.current = null; }
+        if (iceTimerRef.current) { window.clearInterval(iceTimerRef.current); iceTimerRef.current = null; }
     }
 
     async function ensureRoomId(): Promise<string> {
         if (roomId) return roomId;
         const id = genId();
         setRoomId(id);
-        pushRoomToUrl(id);
-        saveLocalRoom(id);
+        if (mounted) {
+            const url = new URL(window.location.href);
+            url.searchParams.set("roomId", id);
+            if (!url.searchParams.get("mode")) url.searchParams.set("mode", mode);
+            window.history.replaceState({}, "", url.toString());
+        }
         return id;
     }
 
@@ -163,42 +113,11 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         }
     }
 
-    // ====== НОВА ЛОГІКА КНОПОК HOST / VIEWER ======
-    async function handleMakeHost() {
-        setErr("");
-        // генеруємо один раз roomId і фіксуємо в URL
-        const id = genId();
-        setRoomId(id);
-        setMode("host");
-        pushRoomToUrl(id, "host");
-        saveLocalRoom(id);
-    }
-
-    async function handleGoViewer() {
-        setErr("");
-        // використовуємо вже наявний roomId або останній з recent
-        let id = roomId;
-        if (!id && recent[0]) id = recent[0].roomId;
-        if (!id) {
-            alert("Спершу створіть host (згенерувати roomId), або оберіть кімнату у списку праворуч.");
-            return;
-        }
-        // переходимо на ту ж сторінку з viewer+roomId — БЕЗ генерації нового id
-        setMode("viewer");
-        pushRoomToUrl(id, "viewer");
-        // необов’язково: автозапуск connect у viewer (щоб зекономити кліки)
-        // await handleConnect() — якщо захочеш, можна розкоментувати
-    }
-    // =================================================
-
     async function handleConnect() {
         setErr("");
         setStatus("connecting");
 
         const id = await ensureRoomId();
-        pushRoomToUrl(id);
-        saveLocalRoom(id);
-
         destroyPeer();
 
         const isHost = mode === "host";
@@ -211,12 +130,13 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 ],
                 iceTransportPolicy: "all",
             },
-            stream: isHost ? streamRef.current ?? undefined : undefined,
+            stream: isHost ? (streamRef.current ?? undefined) : undefined,
         });
 
         peerRef.current = peer;
 
         if (!isHost) {
+            // viewer слухає вхідний remote stream
             peer.on("stream", (remote: MediaStream) => {
                 const el = remoteVideoRef.current;
                 if (!el) return;
@@ -224,6 +144,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 el.play().catch(() => { /* autoplay guard */ });
             });
         } else {
+            // host: якщо не встиг увімкнути камеру — попросимо доступ і додамо треки
             if (!streamRef.current) {
                 try {
                     const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -236,10 +157,11 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             }
         }
 
-        // сигналізація
+        // --- Відправка сигналів на бек
         peer.on("signal", async (data: SignalData) => {
             try {
                 if ((data as any).type === "offer") {
+                    // HOST -> зберегти offer (з from = hostId)
                     const res = await fetch("/api/webrtc/offer", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
@@ -247,20 +169,26 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     });
                     if (!res.ok) throw new Error("offer save failed");
                 } else if ((data as any).type === "answer") {
+                    // VIEWER -> answer (to = hostIdRef.current)
                     const res = await fetch("/api/webrtc/answer", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
-                        body: JSON.stringify({ roomId: id, answer: data, from: clientIdRef.current }),
+                        body: JSON.stringify({
+                            roomId: id,
+                            answer: data,
+                            from: clientIdRef.current,
+                            to: hostIdRef.current || "",
+                        }),
                     });
                     if (!res.ok) throw new Error("answer save failed");
                 } else if ((data as any).candidate) {
+                    // ICE
                     const res = await fetch("/api/webrtc/candidate", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
                         body: JSON.stringify({
                             roomId: id,
                             from: clientIdRef.current,
-                            to: undefined,
                             ice: { type: "candidate", candidate: (data as any).candidate },
                         }),
                     });
@@ -272,45 +200,85 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             }
         });
 
-        function isValidSdp(obj: any, expected: "offer" | "answer"): obj is { type: "offer" | "answer"; sdp: string } {
+        // --- Валідація SDP
+        function isValidSdp(obj: any, expected: "offer" | "answer"): obj is Sdp {
             return obj && obj.type === expected && typeof obj.sdp === "string";
         }
 
-        async function pollOfferOnce(peer: any, rid: string) {
-            const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(rid)}`, { cache: "no-store" });
+        // --- viewer: poll OFFER (повний документ, беремо hostId=from)
+        async function pollOfferOnce(peerInst: Peer.Instance, room: string) {
+            const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(room)}`, { cache: "no-store" });
             if (!r.ok) return false;
-            const doc = await r.json();
-            const sdp = doc?.sdp ?? doc?.offer ?? doc?.payload ?? null;
-            if (isValidSdp(sdp, "offer")) { peer.signal(sdp); return true; }
-            return false;
-        }
-        async function pollAnswerOnce(peer: any, rid: string, hostId: string) {
-            const r = await fetch(`/api/webrtc/answer?roomId=${encodeURIComponent(rid)}&to=${encodeURIComponent(hostId)}`, { cache: "no-store" });
-            if (!r.ok) return false;
-            const doc = await r.json();
-            const sdp = doc?.sdp ?? doc?.answer ?? doc?.payload ?? null;
-            if (isValidSdp(sdp, "answer")) { peer.signal(sdp); return true; }
+            const doc = (await r.json()) as Partial<SdpDoc> | null;
+            if (doc && doc.sdp && isValidSdp(doc.sdp, "offer")) {
+                if (doc.from) hostIdRef.current = doc.from;
+                if (peerRef.current === peerInst) peerInst.signal(doc.sdp);
+                return true;
+            }
             return false;
         }
 
-        const offerTimer: any = { current: null };
-        const answerTimer: any = { current: null };
+        // --- host: poll ANSWER (цільово to=hostId)
+        async function pollAnswerOnce(peerInst: Peer.Instance, room: string, hostId: string) {
+            if (!hostId) return false;
+            const r = await fetch(
+                `/api/webrtc/answer?roomId=${encodeURIComponent(room)}&to=${encodeURIComponent(hostId)}`,
+                { cache: "no-store" }
+            );
+            if (!r.ok) return false;
+            const doc = await r.json();
+            const sdp = doc?.sdp ?? null;
+            if (isValidSdp(sdp, "answer")) {
+                if (peerRef.current === peerInst) peerInst.signal(sdp);
+                return true;
+            }
+            return false;
+        }
 
+        // --- ICE: підтягувати «всі, крім моїх»
+        async function pollIceOnce(peerInst: Peer.Instance, room: string, meId: string) {
+            const r = await fetch(
+                `/api/webrtc/candidate?roomId=${encodeURIComponent(room)}&from=${encodeURIComponent(meId)}`,
+                { cache: "no-store" }
+            );
+            if (!r.ok) return;
+            const arr = await r.json();
+            if (Array.isArray(arr)) {
+                for (const item of arr) {
+                    if (item?.type === "candidate" && item.candidate) {
+                        // типи simple-peer тут прискіпливі — безпечний каст:
+                        if (peerRef.current === peerInst) peerInst.signal(item as any);
+                    }
+                }
+            }
+        }
+
+        // --- Запускаємо пулінг
         if (!isHost) {
-            offerTimer.current = window.setInterval(async () => {
+            offerTimerRef.current = window.setInterval(async () => {
                 try {
                     const got = await pollOfferOnce(peer, id);
-                    if (got && offerTimer.current) { clearInterval(offerTimer.current); offerTimer.current = null; }
+                    if (got && offerTimerRef.current) {
+                        clearInterval(offerTimerRef.current);
+                        offerTimerRef.current = null;
+                    }
                 } catch { }
-            }, 1500);
+            }, 1200) as any;
         } else {
-            answerTimer.current = window.setInterval(async () => {
+            answerTimerRef.current = window.setInterval(async () => {
                 try {
                     const got = await pollAnswerOnce(peer, id, clientIdRef.current);
-                    if (got && answerTimer.current) { clearInterval(answerTimer.current); answerTimer.current = null; }
+                    if (got && answerTimerRef.current) {
+                        clearInterval(answerTimerRef.current);
+                        answerTimerRef.current = null;
+                    }
                 } catch { }
-            }, 1500);
+            }, 1200) as any;
         }
+
+        iceTimerRef.current = window.setInterval(async () => {
+            try { await pollIceOnce(peer, id, clientIdRef.current); } catch { }
+        }, 900) as any;
 
         peer.on("connect", () => setStatus("connected"));
         peer.on("error", (e) => { setErr(e.message || "peer error"); setStatus("error"); });
@@ -330,37 +298,26 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             const el = mode === "host" ? localVideoRef.current : remoteVideoRef.current;
             if (!el) throw new Error("video element not ready");
             const canvas = document.createElement("canvas");
-            const w = el.videoWidth || 640;
-            const h = el.videoHeight || 360;
-            canvas.width = w; canvas.height = h;
+            canvas.width = el.videoWidth || 640;
+            canvas.height = el.videoHeight || 360;
             const ctx = canvas.getContext("2d");
             if (!ctx) throw new Error("canvas ctx error");
-            ctx.drawImage(el, 0, 0, w, h);
+            ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
             const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-            const rid = await ensureRoomId();
+
             const res = await fetch("/api/vision/snapshot", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ roomId: rid, by: clientIdRef.current, imageDataUrl: dataUrl }),
+                body: JSON.stringify({
+                    roomId: await ensureRoomId(),
+                    by: clientIdRef.current,
+                    imageBase64: dataUrl,
+                }),
             });
-            if (!res.ok) {
-                const j = await res.json().catch(() => ({}));
-                throw new Error(j?.error || "snapshot save failed");
-            }
-            saveLocalRoom(rid);
+            if (!res.ok) throw new Error("snapshot save failed");
             setErr("");
         } catch (e: any) {
             setErr(e.message || "snapshot error");
-        }
-    }
-
-    async function copyViewerLink() {
-        try {
-            if (!viewerHref) throw new Error("no link");
-            await navigator.clipboard.writeText(viewerHref);
-            setErr(""); // ок
-        } catch (e: any) {
-            setErr(e.message || "clipboard error");
         }
     }
 
@@ -371,100 +328,66 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 <span className="px-2 py-1 rounded bg-slate-700 text-xs">status: {status}</span>
                 {err && <span className="px-2 py-1 rounded bg-rose-600 text-xs">ERR: {err}</span>}
                 <div className="ml-auto flex gap-2">
-                    {/* НОВІ КНОПКИ — НЕ ГЕНЕРУЮТЬ roomId у viewer */}
-                    <button className="px-3 py-1 rounded bg-amber-500 text-black" onClick={handleMakeHost}>Host</button>
-                    <button className="px-3 py-1 rounded bg-emerald-400 text-black" onClick={handleGoViewer}>Viewer</button>
+                    <button
+                        className={`px-3 py-1 rounded ${mode === "host" ? "bg-amber-500 text-black" : "bg-slate-700"}`}
+                        onClick={() => setMode("host")}
+                    >host</button>
+                    <button
+                        className={`px-3 py-1 rounded ${mode === "viewer" ? "bg-emerald-400 text-black" : "bg-slate-700"}`}
+                        onClick={() => setMode("viewer")}
+                    >viewer</button>
                 </div>
             </div>
 
-            <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_360px]">
-                {/* Ліва колонка */}
-                <div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-lg bg-slate-800 p-3">
-                            <div className="text-xs text-slate-400 mb-1">roomId</div>
-                            <input
-                                className="w-full rounded bg-slate-900 border border-slate-600 px-2 py-1"
-                                value={roomId}
-                                onChange={(e) => {
-                                    const v = e.target.value.trim();
-                                    setRoomId(v);
-                                    pushRoomToUrl(v);
-                                }}
-                                placeholder="auto-generated"
-                            />
-                            <div className="text-xs text-slate-400 mt-2">viewer link</div>
-                            <div className="break-all text-xs bg-slate-900 rounded p-2 border border-slate-700" suppressHydrationWarning>
-                                {mounted ? (viewerHref || "—") : "—"}
-                            </div>
-                            <div className="mt-2">
-                                <button className="px-3 py-1 rounded bg-sky-400 text-black" onClick={copyViewerLink}>📋 Copy viewer link</button>
-                            </div>
-                        </div>
-
-                        <div className="rounded-lg bg-slate-800 p-3 flex items-center gap-2 flex-wrap">
-                            {mode === "host" && (
-                                <button className="px-3 py-1 rounded bg-cyan-400 text-black" onClick={handleStartCamera}>
-                                    🎥 Увімкнути камеру (host)
-                                </button>
-                            )}
-                            <button className="px-3 py-1 rounded bg-emerald-400 text-black" onClick={handleConnect}>
-                                🔗 Підключити
-                            </button>
-                            <button className="px-3 py-1 rounded bg-amber-400 text-black" onClick={handleSnapshot}>
-                                📸 Зробити фото в Mongo
-                            </button>
-                            <button className="px-3 py-1 rounded bg-slate-600" onClick={handleStop}>
-                                ⛔️ Зупинити
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-lg bg-slate-800 p-2">
-                            <div className="text-xs text-slate-400 px-2 pt-1">local</div>
-                            <video ref={localVideoRef} autoPlay playsInline muted className="w-full rounded" />
-                        </div>
-                        <div className="rounded-lg bg-slate-800 p-2">
-                            <div className="text-xs text-slate-400 px-2 pt-1">remote</div>
-                            <video ref={remoteVideoRef} autoPlay playsInline className="w-full rounded" />
-                        </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg bg-slate-800 p-3">
+                    <div className="text-xs text-slate-400 mb-1">roomId</div>
+                    <input
+                        className="w-full rounded bg-slate-900 border border-slate-600 px-2 py-1"
+                        value={roomId}
+                        onChange={(e) => {
+                            const v = e.target.value.trim();
+                            setRoomId(v);
+                            if (mounted) {
+                                const url = new URL(window.location.href);
+                                if (v) url.searchParams.set("roomId", v); else url.searchParams.delete("roomId");
+                                window.history.replaceState({}, "", url.toString());
+                            }
+                        }}
+                        placeholder="auto-generated"
+                    />
+                    <div className="text-xs text-slate-400 mt-2">viewer link</div>
+                    <div className="break-all text-xs bg-slate-900 rounded p-2 border border-slate-700" suppressHydrationWarning>
+                        {mounted ? (viewerHref || "—") : "—"}
                     </div>
                 </div>
 
-                {/* Права колонка: Recent rooms */}
-                <div className="rounded-lg bg-slate-800 p-3">
-                    <div className="text-sm font-semibold mb-2">🗂 Recent rooms</div>
-                    {recent.length === 0 && (
-                        <div className="text-xs text-slate-400">Поки немає історії. Створи кімнату або зроби фото.</div>
+                <div className="rounded-lg bg-slate-800 p-3 flex items-center gap-2 flex-wrap">
+                    {mode === "host" && (
+                        <button className="px-3 py-1 rounded bg-cyan-400 text-black" onClick={handleStartCamera}>
+                            🎥 Увімкнути камеру (host)
+                        </button>
                     )}
-                    <div className="flex flex-col gap-2 max-h-[420px] overflow-auto pr-1">
-                        {recent.map((r) => (
-                            <button
-                                key={r.roomId}
-                                className={`w-full text-left px-2 py-2 rounded border ${r.roomId === roomId ? "border-emerald-400 bg-slate-700" : "border-slate-600 bg-slate-900"
-                                    } hover:bg-slate-700 transition`}
-                                onClick={() => {
-                                    setRoomId(r.roomId);
-                                    pushRoomToUrl(r.roomId, mode);
-                                    saveLocalRoom(r.roomId);
-                                }}
-                                title={r.lastSeen}
-                            >
-                                <div className="font-mono text-xs break-all">{r.roomId}</div>
-                                <div className="text-[11px] text-slate-400">{r.lastSeen}</div>
-                            </button>
-                        ))}
-                    </div>
-                    {roomId && (
-                        <a
-                            className="inline-block mt-3 text-xs underline text-sky-300"
-                            href={`/vision/${encodeURIComponent(roomId)}/snaps`}
-                            target="_blank"
-                        >
-                            👉 Відкрити фото цієї кімнати
-                        </a>
-                    )}
+                    <button className="px-3 py-1 rounded bg-emerald-400 text-black" onClick={handleConnect}>
+                        🔗 Підключити
+                    </button>
+                    <button className="px-3 py-1 rounded bg-amber-400 text-black" onClick={handleSnapshot}>
+                        📸 Зробити фото в Mongo
+                    </button>
+                    <button className="px-3 py-1 rounded bg-slate-600" onClick={handleStop}>
+                        ⛔️ Зупинити
+                    </button>
+                </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg bg-slate-800 p-2">
+                    <div className="text-xs text-slate-400 px-2 pt-1">local</div>
+                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full rounded" />
+                </div>
+                <div className="rounded-lg bg-slate-800 p-2">
+                    <div className="text-xs text-slate-400 px-2 pt-1">remote</div>
+                    <video ref={remoteVideoRef} autoPlay playsInline className="w-full rounded" />
                 </div>
             </div>
         </div>
