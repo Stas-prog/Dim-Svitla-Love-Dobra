@@ -58,6 +58,23 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
+    function buildViewerLink(rid: string) {
+        const base = typeof window !== 'undefined'
+            ? window.location.origin
+            : '';
+        const url = new URL(base + '/vision');
+        url.searchParams.set('mode', 'viewer');
+        url.searchParams.set('roomId', rid);
+        return url.toString();
+    }
+
+    async function goToViewerWithRoomId(ensureRoomIdFn: () => Promise<string>) {
+        const rid = await ensureRoomIdFn();
+        const href = buildViewerLink(rid);
+        window.location.href = href; // відкриваємо тут же
+    }
+
+
     useEffect(() => {
         setMounted(true);
     }, []);
@@ -401,10 +418,11 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     </button>
                     <button
                         className={`px-3 py-1 rounded ${mode === "viewer" ? "bg-emerald-400 text-black" : "bg-slate-700"}`}
-                        onClick={() => setMode("viewer")}
+                        onClick={() => { goToViewerWithRoomId(ensureRoomId); }}
                     >
                         viewer
                     </button>
+
                 </div>
             </div>
 
@@ -435,6 +453,15 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                                 <button className="px-3 py-1 rounded bg-sky-400 text-black" onClick={copyViewerLink}>
                                     📋 Copy viewer link
                                 </button>
+
+                                <button
+                                    className="px-3 py-1 rounded bg-emerald-400 text-black"
+                                    onClick={() => { goToViewerWithRoomId(ensureRoomId); }}
+                                    title="Відкрити режим глядача у цій вкладці"
+                                >
+                                    🔗 Open viewer
+                                </button>
+
                                 {roomId && (
                                     <a
                                         className="px-3 py-1 rounded bg-indigo-400 text-black"
@@ -445,6 +472,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                                     </a>
                                 )}
                             </div>
+
                         </div>
 
                         <div className="rounded-lg bg-slate-800 p-3 flex items-center gap-2 flex-wrap">
