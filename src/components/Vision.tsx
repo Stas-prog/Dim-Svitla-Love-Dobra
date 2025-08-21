@@ -52,14 +52,9 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
-    // таймери пулінгу
-    const offerTimerRef = useRef<number | null>(null);
-    const answerTimerRef = useRef<number | null>(null);
-    const iceTimerRef = useRef<number | null>(null);
-
     useEffect(() => { setMounted(true); }, []);
 
-    // URL -> mode/roomId (лише якщо не задані пропсами)
+    // URL -> mode/roomId (лише якщо не задали пропсами)
     useEffect(() => {
         if (!mounted) return;
 
@@ -74,9 +69,17 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             const qpId = url.searchParams.get("roomId");
             if (qpId) {
                 setRoomId(qpId);
-            } else if (mode === "viewer") {
-                const local = loadLocalRooms();
-                if (local[0]) setRoomId(local[0].roomId);
+            } else {
+                // якщо Viewer без id — спробуємо підхопити останню
+                if (mode === "viewer") {
+                    const local = loadLocalRooms();
+                    if (local[0]) {
+                        setRoomId(local[0].roomId);
+                        url.searchParams.set("mode", "viewer");
+                        url.searchParams.set("roomId", local[0].roomId);
+                        window.history.replaceState({}, "", url.toString());
+                    }
+                }
             }
         }
     }, [mounted]); // eslint-disable-line
@@ -92,7 +95,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         } catch { setViewerHref(""); }
     }, [mounted, roomId]);
 
-    // Підтягти останні кімнати з сервера та змерджити з локальними
+    // підвантажити останні кімнати із сервера та змерджити з локальними
     useEffect(() => {
         if (!mounted) return;
 
@@ -127,24 +130,17 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         })();
     }, [mounted, mode]); // eslint-disable-line
 
-    function pushRoomToUrl(id: string) {
+    function pushRoomToUrl(id: string, m: Mode = mode) {
         if (!mounted) return;
         const url = new URL(window.location.href);
         if (id) url.searchParams.set("roomId", id); else url.searchParams.delete("roomId");
-        if (!url.searchParams.get("mode")) url.searchParams.set("mode", mode);
+        url.searchParams.set("mode", m);
         window.history.replaceState({}, "", url.toString());
-    }
-
-    function clearTimers() {
-        if (offerTimerRef.current) { clearInterval(offerTimerRef.current); offerTimerRef.current = null; }
-        if (answerTimerRef.current) { clearInterval(answerTimerRef.current); answerTimerRef.current = null; }
-        if (iceTimerRef.current) { clearInterval(iceTimerRef.current); iceTimerRef.current = null; }
     }
 
     function destroyPeer() {
         try { peerRef.current?.destroy(); } catch { }
         peerRef.current = null;
-        clearTimers();
     }
 
     async function ensureRoomId(): Promise<string> {
@@ -167,6 +163,34 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         }
     }
 
+    // ====== НОВА ЛОГІКА КНОПОК HOST / VIEWER ======
+    async function handleMakeHost() {
+        setErr("");
+        // генеруємо один раз roomId і фіксуємо в URL
+        const id = genId();
+        setRoomId(id);
+        setMode("host");
+        pushRoomToUrl(id, "host");
+        saveLocalRoom(id);
+    }
+
+    async function handleGoViewer() {
+        setErr("");
+        // використовуємо вже наявний roomId або останній з recent
+        let id = roomId;
+        if (!id && recent[0]) id = recent[0].roomId;
+        if (!id) {
+            alert("Спершу створіть host (згенерувати roomId), або оберіть кімнату у списку праворуч.");
+            return;
+        }
+        // переходимо на ту ж сторінку з viewer+roomId — БЕЗ генерації нового id
+        setMode("viewer");
+        pushRoomToUrl(id, "viewer");
+        // необов’язково: автозапуск connect у viewer (щоб зекономити кліки)
+        // await handleConnect() — якщо захочеш, можна розкоментувати
+    }
+    // =================================================
+
     async function handleConnect() {
         setErr("");
         setStatus("connecting");
@@ -183,11 +207,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             trickle: true,
             config: {
                 iceServers: [
-                    { urls: "stun:stun.l.google.com:19302" },
-                    { urls: "stun:global.stun.twilio.com:3478" },
-                    { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-                    { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-                    { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+                    { urls: ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478"] }, // без пробілів!
                 ],
                 iceTransportPolicy: "all",
             },
@@ -196,16 +216,14 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
 
         peerRef.current = peer;
 
-        // viewer: приймаємо віддалений відеопотік
         if (!isHost) {
             peer.on("stream", (remote: MediaStream) => {
                 const el = remoteVideoRef.current;
                 if (!el) return;
                 el.srcObject = remote;
-                el.play().catch(() => { });
+                el.play().catch(() => { /* autoplay guard */ });
             });
         } else {
-            // host: якщо ще немає камери — увімкнути
             if (!streamRef.current) {
                 try {
                     const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -218,7 +236,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             }
         }
 
-        // === СИГНАЛІЗАЦІЯ (запис у Mongo) ===
+        // сигналізація
         peer.on("signal", async (data: SignalData) => {
             try {
                 if ((data as any).type === "offer") {
@@ -236,13 +254,13 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                     });
                     if (!res.ok) throw new Error("answer save failed");
                 } else if ((data as any).candidate) {
-                    // Кандидата пишемо без адресного фільтру (server-side роздадимо)
                     const res = await fetch("/api/webrtc/candidate", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
                         body: JSON.stringify({
                             roomId: id,
                             from: clientIdRef.current,
+                            to: undefined,
                             ice: { type: "candidate", candidate: (data as any).candidate },
                         }),
                     });
@@ -258,71 +276,45 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             return obj && obj.type === expected && typeof obj.sdp === "string";
         }
 
-        // viewer: poll OFFER
-        async function pollOfferOnce(p: Peer.Instance, rid: string) {
+        async function pollOfferOnce(peer: any, rid: string) {
             const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(rid)}`, { cache: "no-store" });
             if (!r.ok) return false;
             const doc = await r.json();
             const sdp = doc?.sdp ?? doc?.offer ?? doc?.payload ?? null;
-            if (isValidSdp(sdp, "offer")) { p.signal(sdp); return true; }
+            if (isValidSdp(sdp, "offer")) { peer.signal(sdp); return true; }
             return false;
         }
-
-        // host: poll ANSWER
-        async function pollAnswerOnce(p: Peer.Instance, rid: string, hostId: string) {
+        async function pollAnswerOnce(peer: any, rid: string, hostId: string) {
             const r = await fetch(`/api/webrtc/answer?roomId=${encodeURIComponent(rid)}&to=${encodeURIComponent(hostId)}`, { cache: "no-store" });
             if (!r.ok) return false;
             const doc = await r.json();
             const sdp = doc?.sdp ?? doc?.answer ?? doc?.payload ?? null;
-            if (isValidSdp(sdp, "answer")) { p.signal(sdp); return true; }
+            if (isValidSdp(sdp, "answer")) { peer.signal(sdp); return true; }
             return false;
         }
 
-        // обидва: poll ICE (без фільтра by "to", щоб точно забирати все що потрібно)
-        async function pollIceOnce(p: Peer.Instance, rid: string) {
-            const r = await fetch(`/api/webrtc/candidate?roomId=${encodeURIComponent(rid)}`, { cache: "no-store" });
-            if (!r.ok) return false;
-            const arr = await r.json();
-            if (Array.isArray(arr)) {
-                let pushed = false;
-                for (const item of arr) {
-                    if (item && item.type === "candidate" && item.candidate) {
-                        p.signal(item); // simple-peer чекає {type:'candidate', candidate:{...}}
-                        pushed = true;
-                    }
-                }
-                return pushed;
-            }
-            return false;
-        }
-
-        // запустити таймери
-        clearTimers();
+        const offerTimer: any = { current: null };
+        const answerTimer: any = { current: null };
 
         if (!isHost) {
-            offerTimerRef.current = window.setInterval(async () => {
+            offerTimer.current = window.setInterval(async () => {
                 try {
                     const got = await pollOfferOnce(peer, id);
-                    if (got && offerTimerRef.current) { clearInterval(offerTimerRef.current); offerTimerRef.current = null; }
+                    if (got && offerTimer.current) { clearInterval(offerTimer.current); offerTimer.current = null; }
                 } catch { }
-            }, 1200) as unknown as number;
+            }, 1500);
         } else {
-            answerTimerRef.current = window.setInterval(async () => {
+            answerTimer.current = window.setInterval(async () => {
                 try {
                     const got = await pollAnswerOnce(peer, id, clientIdRef.current);
-                    if (got && answerTimerRef.current) { clearInterval(answerTimerRef.current); answerTimerRef.current = null; }
+                    if (got && answerTimer.current) { clearInterval(answerTimer.current); answerTimer.current = null; }
                 } catch { }
-            }, 1200) as unknown as number;
+            }, 1500);
         }
-
-        // ICE — крутиться для обох ролей
-        iceTimerRef.current = window.setInterval(async () => {
-            try { await pollIceOnce(peer, id); } catch { }
-        }, 1200) as unknown as number;
 
         peer.on("connect", () => setStatus("connected"));
         peer.on("error", (e) => { setErr(e.message || "peer error"); setStatus("error"); });
-        peer.on("close", () => { setStatus("idle"); clearTimers(); });
+        peer.on("close", () => setStatus("idle"));
     }
 
     function handleStop() {
@@ -379,8 +371,9 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 <span className="px-2 py-1 rounded bg-slate-700 text-xs">status: {status}</span>
                 {err && <span className="px-2 py-1 rounded bg-rose-600 text-xs">ERR: {err}</span>}
                 <div className="ml-auto flex gap-2">
-                    <button className={`px-3 py-1 rounded ${mode === "host" ? "bg-amber-500 text-black" : "bg-slate-700"}`} onClick={() => setMode("host")}>host</button>
-                    <button className={`px-3 py-1 rounded ${mode === "viewer" ? "bg-emerald-400 text-black" : "bg-slate-700"}`} onClick={() => setMode("viewer")}>viewer</button>
+                    {/* НОВІ КНОПКИ — НЕ ГЕНЕРУЮТЬ roomId у viewer */}
+                    <button className="px-3 py-1 rounded bg-amber-500 text-black" onClick={handleMakeHost}>Host</button>
+                    <button className="px-3 py-1 rounded bg-emerald-400 text-black" onClick={handleGoViewer}>Viewer</button>
                 </div>
             </div>
 
@@ -449,10 +442,11 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         {recent.map((r) => (
                             <button
                                 key={r.roomId}
-                                className={`w-full text-left px-2 py-2 rounded border ${r.roomId === roomId ? "border-emerald-400 bg-slate-700" : "border-slate-600 bg-slate-900"} hover:bg-slate-700 transition`}
+                                className={`w-full text-left px-2 py-2 rounded border ${r.roomId === roomId ? "border-emerald-400 bg-slate-700" : "border-slate-600 bg-slate-900"
+                                    } hover:bg-slate-700 transition`}
                                 onClick={() => {
                                     setRoomId(r.roomId);
-                                    pushRoomToUrl(r.roomId);
+                                    pushRoomToUrl(r.roomId, mode);
                                     saveLocalRoom(r.roomId);
                                 }}
                                 title={r.lastSeen}
