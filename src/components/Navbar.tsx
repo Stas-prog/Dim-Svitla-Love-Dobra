@@ -18,6 +18,7 @@ export default function Navbar() {
             <Link href="/about" className={linkClass("/about")}>👥 Про нас</Link>
             <Link href="/contact" className={linkClass("/contact")}>📬 Контакти</Link>
             <Link href="/snaps" className={linkClass("/snaps")}>📸 Snaps</Link>
+            <Link href="/manifest" className={linkClass("/manifest")}>Маніфест</Link>
         </nav>
     );
 }
