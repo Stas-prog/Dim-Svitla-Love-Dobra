@@ -39,6 +39,10 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     const offerTimerRef = useRef<number | null>(null);
     const answerTimerRef = useRef<number | null>(null);
     const iceTimerRef = useRef<number | null>(null);
+    
+    const didApplyOfferRef = useRef(false);
+    const didSendAnswerRef = useRef(false);
+    const didApplyAnswerRef = useRef(false);
 
     useEffect(() => { setMounted(true); }, []);
 
@@ -123,7 +127,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         const isHost = mode === "host";
         const peer = new Peer({
             initiator: isHost,
-            trickle: true,
+            trickle: false,
             config: {
                 iceServers: [
                     { urls: ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478"] }, // без пробілів!
@@ -168,8 +172,12 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         body: JSON.stringify({ roomId: id, offer: data, from: clientIdRef.current }),
                     });
                     if (!res.ok) throw new Error("offer save failed");
+                } else   if ((data as any).type === "answer" && didSendAnswerRef.current) {
+                    return; // 👈 вже відправляли
                 } else if ((data as any).type === "answer") {
                     // VIEWER -> answer (to = hostIdRef.current)
+                    didSendAnswerRef.current = true; // 👈 ставимо прапорець
+
                     const res = await fetch("/api/webrtc/answer", {
                         method: "POST",
                         headers: { "content-type": "application/json" },
@@ -205,35 +213,33 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             return obj && obj.type === expected && typeof obj.sdp === "string";
         }
 
-        // --- viewer: poll OFFER (повний документ, беремо hostId=from)
-        async function pollOfferOnce(peerInst: Peer.Instance, room: string) {
-            const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(room)}`, { cache: "no-store" });
-            if (!r.ok) return false;
-            const doc = (await r.json()) as Partial<SdpDoc> | null;
-            if (doc && doc.sdp && isValidSdp(doc.sdp, "offer")) {
-                if (doc.from) hostIdRef.current = doc.from;
-                if (peerRef.current === peerInst) peerInst.signal(doc.sdp);
-                return true;
-            }
-            return false;
-        }
+       // viewer: отримує OFFER
+async function pollOfferOnce(peerInst: Peer.Instance, room: string) {
+  const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(room)}`, { cache: "no-store" });
+  if (!r.ok) return false;
+  const doc = await r.json();
+  if (doc?.sdp?.type === "offer" && !didApplyOfferRef.current) {
+    didApplyOfferRef.current = true; // 👈 захист
+    if (peerRef.current === peerInst) peerInst.signal(doc.sdp);
+    return true;
+  }
+  return false;
+}
 
-        // --- host: poll ANSWER (цільово to=hostId)
-        async function pollAnswerOnce(peerInst: Peer.Instance, room: string, hostId: string) {
-            if (!hostId) return false;
-            const r = await fetch(
-                `/api/webrtc/answer?roomId=${encodeURIComponent(room)}&to=${encodeURIComponent(hostId)}`,
-                { cache: "no-store" }
-            );
-            if (!r.ok) return false;
-            const doc = await r.json();
-            const sdp = doc?.sdp ?? null;
-            if (isValidSdp(sdp, "answer")) {
-                if (peerRef.current === peerInst) peerInst.signal(sdp);
-                return true;
-            }
-            return false;
-        }
+// host: отримує ANSWER
+async function pollAnswerOnce(peerInst: Peer.Instance, room: string, hostId: string) {
+  if (!hostId) return false;
+  const r = await fetch(`/api/webrtc/answer?roomId=${encodeURIComponent(room)}&to=${encodeURIComponent(hostId)}`, { cache: "no-store" });
+  if (!r.ok) return false;
+  const doc = await r.json();
+  if (doc?.sdp?.type === "answer" && !didApplyAnswerRef.current) {
+    didApplyAnswerRef.current = true; // 👈 захист
+    if (peerRef.current === peerInst) peerInst.signal(doc.sdp);
+    return true;
+  }
+  return false;
+}
+
 
         // --- ICE: підтягувати «всі, крім моїх»
         async function pollIceOnce(peerInst: Peer.Instance, room: string, meId: string) {
