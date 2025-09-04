@@ -331,7 +331,7 @@ peer.on("error", (e) => console.error("PEER ERROR", e));
 }
 
 
-    async function handleSnapshot() {
+   async function handleSnapshot() {
   try {
     const el = mode === "host" ? localVideoRef.current : remoteVideoRef.current;
     if (!el) throw new Error("video element not ready");
@@ -341,21 +341,22 @@ peer.on("error", (e) => console.error("PEER ERROR", e));
     canvas.height = el.videoHeight || 360;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("canvas ctx error");
-
     ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
+
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+    // перетворимо dataURL -> Blob (лайфхак через fetch)
+    const blob = await (await fetch(dataUrl)).blob();
+    const fd = new FormData();
+    fd.append("file", blob, `snap-${Date.now()}.jpg`);
+    fd.append("roomId", await ensureRoomId());
+    fd.append("caption", "");
 
     const res = await fetch("/api/upload", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(process.env.VISION_PIN ? { "x-pin": process.env.VISION_PIN } : {"x-pin":"1234"}),
-      },
-      body: JSON.stringify({
-        roomId: await ensureRoomId(),
-        imageDataUrl: dataUrl,   // ⬅️ аплоадер чекає imageDataUrl
-        caption: "",             // опціонально
-      }),
+      // ВАЖЛИВО: НЕ ставимо content-type вручну — браузер сам проставить boundary
+      headers: { "x-pin": "1234" }, 
+      body: fd,
     });
 
     if (!res.ok) {
