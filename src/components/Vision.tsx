@@ -27,6 +27,8 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
 
     const [mounted, setMounted] = useState(false);
     const [viewerHref, setViewerHref] = useState<string>("");
+    // обчислюємо "зайнятість"
+    const isBusy = status === "connecting" || status === "connected";
 
     const clientIdRef = useRef<string>("");
     const peerRef = useRef<Peer.Instance | null>(null);
@@ -118,11 +120,19 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     }
 
     async function handleConnect() {
-        setErr("");
-        setStatus("connecting");
+         if (status === "connecting") return;           // не даємо натиснути двічі
+  setErr("");
+  setStatus("connecting");
 
-        const id = await ensureRoomId();
-        destroyPeer();
+  // скидаємо прапорці щоразу перед новим peer
+  didApplyOfferRef.current = false;
+  didSendAnswerRef.current = false;
+  didApplyAnswerRef.current = false;
+  hostIdRef.current = "";
+
+  const id = await ensureRoomId();
+  destroyPeer();
+        
 
         const isHost = mode === "host";
         const peer = new Peer({
@@ -288,16 +298,28 @@ async function pollAnswerOnce(peerInst: Peer.Instance, room: string, hostId: str
 
         peer.on("connect", () => setStatus("connected"));
         peer.on("error", (e) => { setErr(e.message || "peer error"); setStatus("error"); });
-        peer.on("close", () => setStatus("idle"));
+        peer.on("close", () => {
+  setStatus("idle");
+  didApplyOfferRef.current = false;
+  didSendAnswerRef.current = false;
+  didApplyAnswerRef.current = false;
+  hostIdRef.current = "";
+});
+
     }
 
     function handleStop() {
-        setErr("");
-        setStatus("idle");
-        destroyPeer();
-        try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch { }
-        streamRef.current = null;
-    }
+  setErr("");
+  setStatus("idle");
+  destroyPeer();
+  didApplyOfferRef.current = false;
+  didSendAnswerRef.current = false;
+  didApplyAnswerRef.current = false;
+  hostIdRef.current = "";
+  try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch {}
+  streamRef.current = null;
+}
+
 
     async function handleSnapshot() {
   try {
@@ -386,7 +408,8 @@ async function pollAnswerOnce(peerInst: Peer.Instance, room: string, hostId: str
                             🎥 Увімкнути камеру (host)
                         </button>
                     )}
-                    <button className="px-3 py-1 rounded bg-emerald-400 text-black" onClick={handleConnect}>
+                    <button className="px-3 py-1 rounded bg-emerald-400 text-black" onClick={!isBusy ? handleConnect : undefined}
+                         disabled={isBusy}>
                         🔗 Підключити
                     </button>
                     <button className="px-3 py-1 rounded bg-amber-400 text-black" onClick={handleSnapshot}>

@@ -23,7 +23,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const { roomId, clientId = "unknown", image } = await req.json();
+    const { roomId, clientId = "unknown", image, from } = await req.json();
 
     if (!roomId || !image || !String(image).startsWith("data:image/")) {
       return NextResponse.json({ error: "roomId та image(dataURL) обов’язкові" }, { status: 400 });
@@ -45,6 +45,7 @@ export async function POST(req: Request) {
     const result = await db.collection("snaps").insertOne({
       roomId,
       clientId,
+      from,
       url: uploaded.secure_url,
       publicId: uploaded.public_id,
       width: uploaded.width,
