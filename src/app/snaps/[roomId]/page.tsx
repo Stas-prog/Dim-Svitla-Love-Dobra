@@ -11,8 +11,9 @@ type Slide = {
   height?: number;
 };
 
-export default function RoomGallery({ params }: { params: { roomId: string } }) {
-  const { roomId } = params;
+export default function RoomGallery({ params }: { params: Promise<{ roomId: string }>}) {
+  const id = React.use(params);
+  const roomId  = id.roomId;
   const [slides, setSlides] = useState<Slide[]>([]);
   const [loading, setLoading] = useState(true);
 

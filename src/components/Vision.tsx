@@ -442,7 +442,7 @@ peer.on("error", (e) => console.error("PEER ERROR", e));
                 </a>
                 {roomId && (
                     <a
-                        href={`/snaps/${encodeURIComponent(roomId)}`}
+                        href={`/snaps/${roomId}`}
                         className="px-3 py-1 rounded bg-black text-amber-700 text-sm"
                         target="_blank"
                     >
