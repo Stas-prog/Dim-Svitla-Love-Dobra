@@ -28,7 +28,7 @@ export async function GET() {
 
         // беремо останні сліди по снімпшотах і офферах
         const snapsRaw = await db
-            .collection("vision_snaps")
+            .collection("snaps")
             .find({}, { projection: { roomId: 1, createdAt: 1 } })
             .sort({ createdAt: -1 })
             .limit(200)

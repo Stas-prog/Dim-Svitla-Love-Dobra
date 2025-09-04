@@ -1,10 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState, useEffect, useRef } from "react";
-import { Train } from "lucide-react";
-import ChuhChuh from "@/components/ChuhChuh";
-import ChuhChuhButton from "@/components/ChuhChuhButton";
+
 
 const lines = [
     "Ми — світло серед темряви.",
@@ -27,22 +24,7 @@ const lines = [
 ];
 
 export default function ManifestPage() {
-    const [showTrain, setShowTrain] = useState(false);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-
-    useEffect(() => {
-        // показуємо 🚂 після тексту
-        const timer = setTimeout(() => setShowTrain(true), lines.length * 600 + 2000);
-        return () => clearTimeout(timer);
-    }, []);
-
-    useEffect(() => {
-        if (showTrain && audioRef.current) {
-            audioRef.current.play().catch(() => {
-                console.warn("Автовідтворення блокується браузером 🙃");
-            });
-        }
-    }, [showTrain]);
+   
 
     return (
         <div className="relative min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-black via-slate-900 to-emerald-900 text-white font-serif p-6 overflow-hidden">
@@ -83,24 +65,9 @@ export default function ManifestPage() {
                     Дім Світла, Любові і Добра
                 </motion.h1>
             </div>
-
-            {/* 🚂 Анімація паровозика */}
-            {showTrain && (
-                <motion.div
-                    className="absolute bottom-10 left-[-100px] flex items-center space-x-2 text-yellow-300 z-50"
-                    initial={{ x: "-100%" }}
-                    animate={{ x: "120vw" }}
-                    transition={{ duration: 8, ease: "linear" }}
-                >
-                    <Train size={48} className="drop-shadow-lg" />
-                    <p className="font-bold text-xl">Чух-Чух!</p>
-                </motion.div>
-            )}
-            <ChuhChuh />
-            <ChuhChuhButton />
-
-            {/* 🎶 Аудіо паровозика */}
-            <audio ref={audioRef} src="/sounds/train-chuh.mp3" preload="auto" />
         </div>
     );
 }
+
+
+     

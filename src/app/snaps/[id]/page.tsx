@@ -1,4 +1,3 @@
-// src/app/snaps/[roomId]/page.tsx
 export const dynamic = "force-dynamic";
 
 type Snap = {

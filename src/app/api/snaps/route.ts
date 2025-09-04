@@ -1,33 +1,62 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
+import { cloudinary } from "@/lib/cloudinary";
 
-// Отримати всі фото
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export const revalidate = 0;
+
+// GET: останні (нові зверху)
 export async function GET() {
-    const db = await getDb();
-    const snaps = await db.collection("snaps").find().sort({ createdAt: -1 }).toArray();
-    return NextResponse.json(snaps);
+  const db = await getDb();
+  const snaps = await db
+    .collection("snaps")
+    .find({}, { projection: { image: 0 } })  
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .toArray();
+
+  return NextResponse.json(snaps);
 }
 
-// Додати фото
+
+
 export async function POST(req: Request) {
-    try {
-        const { roomId, image } = await req.json();
+  try {
+    const { roomId, clientId = "unknown", image } = await req.json();
 
-        if (!roomId || !image) {
-            return NextResponse.json({ error: "roomId і image обов’язкові" }, { status: 400 });
-        }
-
-        const db = await getDb();
-        const snaps = db.collection("snaps");
-        const result = await snaps.insertOne({
-            roomId,
-            image,
-            createdAt: new Date(),
-        });
-
-        return NextResponse.json({ insertedId: result.insertedId });
-    } catch (err) {
-        console.error("❌ Помилка у POST /api/snaps:", err);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    if (!roomId || !image || !String(image).startsWith("data:image/")) {
+      return NextResponse.json({ error: "roomId та image(dataURL) обов’язкові" }, { status: 400 });
     }
+
+    // 1) Upload to Cloudinary
+    const uploaded = await cloudinary.uploader.upload(image, {
+      folder: `dim_svitla/${roomId}`,
+      // якщо хочеш оптимізацію по дефолту
+      transformation: [{ quality: "auto", fetch_format: "auto" }],
+    });
+
+    // 2) Save meta to Mongo
+    const db = await getDb();
+    // десь у завантаженні/адмін-роуті
+     await db.collection("snaps").createIndex({ roomId: 1, createdAt: -1 });
+     await db.collection("snaps").createIndex({ publicId: 1 }, { unique: false });
+
+    const result = await db.collection("snaps").insertOne({
+      roomId,
+      clientId,
+      url: uploaded.secure_url,
+      publicId: uploaded.public_id,
+      width: uploaded.width,
+      height: uploaded.height,
+      bytes: uploaded.bytes,
+      format: uploaded.format,
+      createdAt: new Date(),
+    });
+
+    return NextResponse.json({ insertedId: result.insertedId, url: uploaded.secure_url });
+  } catch (e: any) {
+    console.error("POST /api/snaps error", e);
+    return NextResponse.json({ error: e?.message || "Upload error" }, { status: 500 });
+  }
 }

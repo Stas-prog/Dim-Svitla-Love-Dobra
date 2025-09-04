@@ -305,24 +305,17 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
             const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
 
-            const res = await fetch("/api/vision/snapshot", {
+            const res = await fetch("/api/snaps", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
                     roomId: await ensureRoomId(),
                     by: clientIdRef.current,
-                    imageBase64: dataUrl,
+                    url: dataUrl,
                 }),
             });
-            const res1 = await fetch("/api/snaps", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ roomId: await ensureRoomId(), image: dataUrl }),
-            });
-
+           
             if (!res.ok) throw new Error("snapshot save failed");
-            setErr("");
-            if (!res1.ok) throw new Error("snapshot save failed");
             setErr("");
         } catch (e: any) {
             setErr(e.message || "snapshot error");
@@ -381,8 +374,9 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         🔗 Підключити
                     </button>
                     <button className="px-3 py-1 rounded bg-amber-400 text-black" onClick={handleSnapshot}>
-                        📸 Зробити фото в Mongo
+                        📸 Зберегти фото (Cloudinary)
                     </button>
+
                     <button className="px-3 py-1 rounded bg-slate-600" onClick={handleStop}>
                         ⛔️ Зупинити
                     </button>

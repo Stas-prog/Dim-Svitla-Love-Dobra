@@ -98,3 +98,16 @@ body {
     transform: translateY(0);
   }
 }
+
+ .loader:before, .loader:after{
+          content:""; position:absolute; inset:0; border-radius:50%;
+          transform:rotateX(70deg); animation:spin 1s linear infinite;
+          box-shadow:.2em 0 0 0 currentColor;
+        }
+        .loader:after{ color:#FF3D00; transform:rotateY(70deg); animation-delay:.4s; }
+        @keyframes spin{
+          0%,100%{box-shadow:.2em 0 0 0 currentColor}
+          25%{box-shadow:0 .2em 0 0 currentColor}
+          50%{box-shadow:-.2em 0 0 0 currentColor}
+          75%{box-shadow:0 -.2em 0 0 currentColor}
+        }

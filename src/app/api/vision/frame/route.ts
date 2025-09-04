@@ -5,11 +5,14 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
 
+const MAX_DATAURL_BYTES = 1_000_000; // ~1MB у base64, підлаштуй під себе
+const REQ_PIN = process.env.VISION_PIN || "";
+
 type FrameDoc = {
     _id?: string;
     roomId: string;
     by: "host" | "viewer";
-    dataUrl: string;      // data:image/jpeg;base64,...
+    dataUrl: string;     
     createdAt: string;
 };
 
@@ -19,6 +22,18 @@ export async function POST(req: Request) {
     if (!body?.roomId || !body?.dataUrl) {
         return NextResponse.json({ ok: false, error: "roomId and dataUrl are required" }, { status: 400 });
     }
+    if (REQ_PIN) {
+  const pin = (req.headers.get("x-pin") || "").trim();
+  if (pin !== REQ_PIN) {
+    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
+}
+if (!body.dataUrl.startsWith("data:image/")) {
+  return NextResponse.json({ ok: false, error: "invalid image dataUrl" }, { status: 400 });
+}
+if (body.dataUrl.length > MAX_DATAURL_BYTES) {
+  return NextResponse.json({ ok: false, error: "image too large" }, { status: 413 });
+}
     const doc: FrameDoc = { ...body, createdAt: new Date().toISOString() };
 
     try {
