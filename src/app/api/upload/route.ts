@@ -1,47 +1,90 @@
 import { NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
-import type { UploadApiResponse } from "@/types/upload";
 
-// Конфіг Cloudinary
 cloudinary.config({
-  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
+  api_key: process.env.CLOUDINARY_API_KEY!,
+  api_secret: process.env.CLOUDINARY_API_SECRET!,
 });
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function bad(msg: string, status = 400) {
+  return NextResponse.json({ ok: false, error: msg }, { status });
+}
 
 export async function POST(req: Request) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
-    const folder = formData.get("folder")?.toString() || "vision";
-    const publicId = formData.get("publicId")?.toString();
-    const caption = formData.get("caption")?.toString();
+    const ctype = req.headers.get("content-type") || "";
 
-    if (!file) {
-      return NextResponse.json({ ok: false, error: "No file uploaded" }, { status: 400 });
+    // 1) MULTIPART (FormData з файлом)
+    if (ctype.includes("multipart/form-data")) {
+      const form = await req.formData();
+      const file = form.get("file") as File | null;
+      const roomId = String(form.get("roomId") || "default-room");
+      const caption = String(form.get("caption") || "");
+
+      if (!file) return bad('No "file" in form-data');
+
+      const arrayBuf = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuf);
+
+      const publicIdPrefix = `vision/${roomId}/snap-${Date.now()}`;
+
+      // з buffer — через upload_stream
+      const uploaded = await new Promise<any>((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: `vision/${roomId}`,
+            public_id: publicIdPrefix,
+            resource_type: "image",
+            overwrite: true,
+          },
+          (err, result) => (err ? reject(err) : resolve(result))
+        );
+        stream.end(buffer);
+      });
+
+      return NextResponse.json({
+        ok: true,
+        url: uploaded.secure_url,
+        public_id: uploaded.public_id,
+        width: uploaded.width,
+        height: uploaded.height,
+        caption,
+        roomId,
+      });
     }
 
-    // Читаємо файл у buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buf = Buffer.from(arrayBuffer);
+    // 2) JSON (dataUrl)
+    if (ctype.includes("application/json")) {
+      const { imageDataUrl, roomId = "default-room", caption = "" } = await req.json();
 
-    // Завантаження у Cloudinary
-    const uploaded = await new Promise<UploadApiResponse>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder,
-          public_id: publicId,
-          resource_type: "image",
-          context: caption ? { caption } : undefined,
-        },
-        (err, res) => (err ? reject(err) : resolve(res!))
-      );
-      stream.end(buf);
-    });
+      if (!imageDataUrl || typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image"))
+        return bad('Expected "imageDataUrl" data URL');
 
-    return NextResponse.json({ ok: true, uploaded });
+      const uploaded = await cloudinary.uploader.upload(imageDataUrl, {
+        folder: `vision/${roomId}`,
+        public_id: `vision/${roomId}/snap-${Date.now()}`,
+        resource_type: "image",
+        overwrite: true,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        url: uploaded.secure_url,
+        public_id: uploaded.public_id,
+        width: uploaded.width,
+        height: uploaded.height,
+        caption,
+        roomId,
+      });
+    }
+
+    // Інакший content-type
+    return bad('Content-Type was not one of "multipart/form-data" or "application/json".');
   } catch (e: any) {
-    console.error("❌ Upload error:", e);
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e.message || "upload error" }, { status: 500 });
   }
 }

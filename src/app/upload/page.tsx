@@ -1,90 +1,75 @@
-import { NextResponse } from "next/server";
-import { v2 as cloudinary } from "cloudinary";
+"use client";
+import { useState } from "react";
 
-cloudinary.config({
-  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME!,
-  api_key: process.env.CLOUDINARY_API_KEY!,
-  api_secret: process.env.CLOUDINARY_API_SECRET!,
-});
+export default function UploadPage() {
+  const [file, setFile] = useState<File | null>(null);
+  const [caption, setCaption] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+  async function handleUpload() {
+    if (!file) return;
+    setBusy(true); setMsg(null);
+    try {
+      // 1) заливаємо у Cloudinary (unsigned)
+      const f = new FormData();
+      f.append("file", file);
+      f.append("upload_preset", process.env.NEXT_PUBLIC_CLOUDINARY_PRESET!);
 
-function bad(msg: string, status = 400) {
-  return NextResponse.json({ ok: false, error: msg }, { status });
-}
+      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME!;
+      const up = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: "POST", body: f,
+      });
+      const res = await up.json();
+      if (!res.secure_url) throw new Error("Upload failed");
 
-export async function POST(req: Request) {
-  try {
-    const ctype = req.headers.get("content-type") || "";
-
-    // 1) MULTIPART (FormData з файлом)
-    if (ctype.includes("multipart/form-data")) {
-      const form = await req.formData();
-      const file = form.get("file") as File | null;
-      const roomId = String(form.get("roomId") || "default-room");
-      const caption = String(form.get("caption") || "");
-
-      if (!file) return bad('No "file" in form-data');
-
-      const arrayBuf = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuf);
-
-      const publicIdPrefix = `vision/${roomId}/snap-${Date.now()}`;
-
-      // з buffer — через upload_stream
-      const uploaded = await new Promise<any>((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          {
-            folder: `vision/${roomId}`,
-            public_id: publicIdPrefix,
-            resource_type: "image",
-            overwrite: true,
-          },
-          (err, result) => (err ? reject(err) : resolve(result))
-        );
-        stream.end(buffer);
+      // 2) зберігаємо URL у Mongo
+      await fetch("/api/slides", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: res.secure_url, caption }),
       });
 
-      return NextResponse.json({
-        ok: true,
-        url: uploaded.secure_url,
-        public_id: uploaded.public_id,
-        width: uploaded.width,
-        height: uploaded.height,
-        caption,
-        roomId,
-      });
+      setMsg("✅ Готово! Фото з’явиться в слайд-шоу.");
+      setFile(null); setCaption("");
+    } catch (e:any) {
+      setMsg("❌ Помилка завантаження. " + (e?.message || ""));
+    } finally {
+      setBusy(false);
     }
-
-    // 2) JSON (dataUrl)
-    if (ctype.includes("application/json")) {
-      const { imageDataUrl, roomId = "default-room", caption = "" } = await req.json();
-
-      if (!imageDataUrl || typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image"))
-        return bad('Expected "imageDataUrl" data URL');
-
-      const uploaded = await cloudinary.uploader.upload(imageDataUrl, {
-        folder: `vision/${roomId}`,
-        public_id: `vision/${roomId}/snap-${Date.now()}`,
-        resource_type: "image",
-        overwrite: true,
-      });
-
-      return NextResponse.json({
-        ok: true,
-        url: uploaded.secure_url,
-        public_id: uploaded.public_id,
-        width: uploaded.width,
-        height: uploaded.height,
-        caption,
-        roomId,
-      });
-    }
-
-    // Інакший content-type
-    return bad('Content-Type was not one of "multipart/form-data" or "application/json".');
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message || "upload error" }, { status: 500 });
   }
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="mx-auto max-w-md p-6 space-y-4">
+        <h1 className="text-2xl font-semibold">Завантажити фото</h1>
+
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={e => setFile(e.target.files?.[0] || null)}
+          className="block w-full text-sm"
+        />
+
+        <input
+          type="text"
+          value={caption}
+          onChange={(e)=>setCaption(e.target.value)}
+          placeholder="Підпис (необов’язково)"
+          className="w-full rounded-lg bg-slate-900 border border-slate-700 p-2"
+        />
+
+        <button
+          onClick={handleUpload}
+          disabled={!file || busy}
+          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60"
+        >
+          {busy ? "Завантажую…" : "Завантажити"}
+        </button>
+
+        {msg && <p className="text-sm text-slate-300">{msg}</p>}
+      </div>
+    </main>
+  );
 }
