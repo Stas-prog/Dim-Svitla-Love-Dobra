@@ -294,33 +294,43 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     }
 
     async function handleSnapshot() {
-        try {
-            const el = mode === "host" ? localVideoRef.current : remoteVideoRef.current;
-            if (!el) throw new Error("video element not ready");
-            const canvas = document.createElement("canvas");
-            canvas.width = el.videoWidth || 640;
-            canvas.height = el.videoHeight || 360;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) throw new Error("canvas ctx error");
-            ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+  try {
+    const el = mode === "host" ? localVideoRef.current : remoteVideoRef.current;
+    if (!el) throw new Error("video element not ready");
 
-            const res = await fetch("/api/snaps", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                    roomId: await ensureRoomId(),
-                    by: clientIdRef.current,
-                    url: dataUrl,
-                }),
-            });
-           
-            if (!res.ok) throw new Error("snapshot save failed");
-            setErr("");
-        } catch (e: any) {
-            setErr(e.message || "snapshot error");
-        }
+    const canvas = document.createElement("canvas");
+    canvas.width = el.videoWidth || 640;
+    canvas.height = el.videoHeight || 360;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas ctx error");
+
+    ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(process.env.VISION_PIN ? { "x-pin": process.env.VISION_PIN } : {"x-pin":"1234"}),
+      },
+      body: JSON.stringify({
+        roomId: await ensureRoomId(),
+        imageDataUrl: dataUrl,   // ⬅️ аплоадер чекає imageDataUrl
+        caption: "",             // опціонально
+      }),
+    });
+
+    if (!res.ok) {
+      const msg = await res.text().catch(() => "");
+      throw new Error(`upload failed: ${msg || res.status}`);
     }
+
+    setErr("");
+  } catch (e: any) {
+    setErr(e.message || "snapshot error");
+  }
+}
+
 
     return (
         <div className="rounded-2xl p-4 my-6 bg-slate-900 text-slate-50 shadow vision-ui">
@@ -374,7 +384,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         🔗 Підключити
                     </button>
                     <button className="px-3 py-1 rounded bg-amber-400 text-black" onClick={handleSnapshot}>
-                        📸 Зберегти фото (Cloudinary)
+                        📸 Зробити фото (Cloudinary)
                     </button>
 
                     <button className="px-3 py-1 rounded bg-slate-600" onClick={handleStop}>
