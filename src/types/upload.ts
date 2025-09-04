@@ -1,4 +1,4 @@
-export type CloudinaryUploadResult = {
+export type UploadApiResponse = {
   public_id: string;
   secure_url: string;
   width: number;
