@@ -71,7 +71,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                 window.history.replaceState({}, "", url.toString());
             }
         }
-    }, [mounted]); // eslint-disable-line
+    }, [mounted]); 
 
     // Формуємо viewer link із поточним roomId
     useEffect(() => {
@@ -137,7 +137,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         const isHost = mode === "host";
         const peer = new Peer({
             initiator: isHost,
-            trickle: false,
+            trickle: true,
             config: {
                 iceServers: [
                     { urls: ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478"] }, // без пробілів!
@@ -182,10 +182,10 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
                         body: JSON.stringify({ roomId: id, offer: data, from: clientIdRef.current }),
                     });
                     if (!res.ok) throw new Error("offer save failed");
-                } else   if ((data as any).type === "answer" && didSendAnswerRef.current) {
-                    return; // 👈 вже відправляли
                 } else if ((data as any).type === "answer") {
                     // VIEWER -> answer (to = hostIdRef.current)
+                    if(didSendAnswerRef.current) return; // 👈 вже відправляли
+
                     didSendAnswerRef.current = true; // 👈 ставимо прапорець
 
                     const res = await fetch("/api/webrtc/answer", {
@@ -224,17 +224,24 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         }
 
        // viewer: отримує OFFER
+
 async function pollOfferOnce(peerInst: Peer.Instance, room: string) {
   const r = await fetch(`/api/webrtc/offer?roomId=${encodeURIComponent(room)}`, { cache: "no-store" });
   if (!r.ok) return false;
   const doc = await r.json();
+
+  if (doc?.from) {
+    hostIdRef.current = doc.from;       // <- щоб viewer знав, КОМУ надсилати answer
+  }
+
   if (doc?.sdp?.type === "offer" && !didApplyOfferRef.current) {
-    didApplyOfferRef.current = true; // 👈 захист
-    if (peerRef.current === peerInst) peerInst.signal(doc.sdp);
+    didApplyOfferRef.current = true;
+    if (peerRef.current === peerInst) peerInst.signal(doc.sdp); // після цього simple-peer згенерує answer
     return true;
   }
   return false;
 }
+
 
 // host: отримує ANSWER
 async function pollAnswerOnce(peerInst: Peer.Instance, room: string, hostId: string) {
@@ -298,13 +305,16 @@ async function pollAnswerOnce(peerInst: Peer.Instance, room: string, hostId: str
 
         peer.on("connect", () => setStatus("connected"));
         peer.on("error", (e) => { setErr(e.message || "peer error"); setStatus("error"); });
-        peer.on("close", () => {
+peer.on("close", () => {
   setStatus("idle");
   didApplyOfferRef.current = false;
   didSendAnswerRef.current = false;
   didApplyAnswerRef.current = false;
   hostIdRef.current = "";
 });
+peer.on("signal", (data) => console.log("SIGNAL", data?.type || "ice", data));
+peer.on("connect", () => console.log("PEER CONNECTED"));
+peer.on("error", (e) => console.error("PEER ERROR", e));
 
     }
 
