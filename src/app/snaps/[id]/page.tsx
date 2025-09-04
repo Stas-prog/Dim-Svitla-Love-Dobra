@@ -1,55 +1,71 @@
-export const dynamic = "force-dynamic";
+"use client";
+import React, { useEffect, useState } from "react";
 
-type Snap = {
-    _id: string;
-    roomId: string;
-    image: string;       // data URL (image/jpeg або png)
-    createdAt: string;
+type Slide = {
+  _id: string;
+  roomId: string;
+  url: string;
+  caption?: string;
+  createdAt?: string;
+  width?: number;
+  height?: number;
 };
 
-async function getSnaps(roomId: string): Promise<Snap[]> {
-    const url =
-        `${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/snaps?roomId=${encodeURIComponent(roomId)}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return [];
-    const j = (await res.json()) as Snap[] | any;
-    return Array.isArray(j) ? j : [];
-}
+export default function RoomGallery({ params }: { params: { roomId: string } }) {
+  const { roomId } = params;
+  const [slides, setSlides] = useState<Slide[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export default async function RoomSnapsPage({ params }: { params: Promise<{ roomId: string }> }) {
-    const { roomId } = await params;
-    const snaps = await getSnaps(roomId);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/slides?roomId=${encodeURIComponent(roomId)}&limit=90`, { cache: "no-store" });
+        const j = await r.json();
+        if (alive && j.ok) setSlides(j.items || []);
+      } catch {}
+      finally { if (alive) setLoading(false); }
+    })();
+    // авто-оновлення кожні 5с
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/slides?roomId=${encodeURIComponent(roomId)}&limit=90`, { cache: "no-store" });
+        const j = await r.json();
+        if (j.ok) setSlides(j.items || []);
+      } catch {}
+    }, 5000);
+    return () => { alive = false; clearInterval(t); };
+  }, [roomId]);
 
-    return (
-        <main className="min-h-screen p-6 bg-slate-900 text-slate-50">
-            <div className="max-w-6xl mx-auto">
-                <h1 className="text-2xl font-bold mb-2">🖼 Фото кімнати</h1>
-                <div className="font-mono text-xs break-all text-slate-300 mb-6">{roomId}</div>
+  return (
+    <main className="max-w-6xl mx-auto p-4 sm:p-6">
+      <h1 className="text-xl font-semibold mb-4">🖼 Room: {roomId}</h1>
+      {loading && <div className="text-slate-400">Loading…</div>}
+      {!loading && slides.length === 0 && <div className="text-slate-400">У цій кімнаті поки немає фото.</div>}
 
-                {snaps.length === 0 ? (
-                    <div className="text-slate-300 text-sm">Немає збережених фото для цієї кімнати.</div>
-                ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {snaps.map((s) => (
-                            <div
-                                key={s._id}
-                                className="rounded-lg overflow-hidden border border-slate-700 bg-slate-800"
-                            >
-                                <img src={s.image} alt="snap" className="w-full h-auto block" />
-                                <div className="p-2 text-[11px] text-slate-300 border-t border-slate-700">
-                                    {s.createdAt}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                <div className="mt-6">
-                    <a href="/snaps" className="text-sky-300 underline text-sm">
-                        ← До списку кімнат
-                    </a>
-                </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {slides.map((s) => (
+          <a
+            key={s._id}
+            href={s.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-xl overflow-hidden border border-slate-700 hover:border-emerald-400 transition-colors"
+          >
+            <div className="aspect-video bg-slate-800">
+              <img
+                src={s.url}
+                alt={s.caption || s.roomId}
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
             </div>
-        </main>
-    );
+            <div className="p-2 text-xs text-slate-300">
+              {s.caption || "snap"} • {s.createdAt ? new Date(s.createdAt).toLocaleString() : ""}
+            </div>
+          </a>
+        ))}
+      </div>
+    </main>
+  );
 }

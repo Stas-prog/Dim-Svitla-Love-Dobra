@@ -54,6 +54,7 @@ export async function POST(req: Request) {
         height: uploaded.height,
         caption,
         roomId,
+        createdAt: new Date(),
       });
     }
 
