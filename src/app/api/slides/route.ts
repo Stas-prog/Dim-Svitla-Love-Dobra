@@ -1,37 +1,39 @@
 import { NextResponse } from "next/server";
-import cloudinary from "@/lib/cloudinary";
+import cloudinary, { clUrl } from "@/lib/cloudinary";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const roomId = (url.searchParams.get("roomId") || "").trim();
-  const limit = Math.min(parseInt(url.searchParams.get("limit") || "90", 10) || 90, 200);
-
-  if (!roomId) {
-    return NextResponse.json({ ok: false, error: "roomId required" }, { status: 400 });
-  }
-
   try {
-    const expr = `folder="vision/${roomId}"`;
-    const res = await cloudinary.search
+    const url = new URL(req.url);
+    const roomId = (url.searchParams.get("roomId") || "").trim();
+    const series = (url.searchParams.get("series") || "default") as "default" | "slideshow";
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "60", 10) || 60, 200);
+
+    if (!roomId) {
+      return NextResponse.json({ items: [] });
+    }
+
+    const folder = `vision/${roomId}${series === "slideshow" ? "/slideshow" : ""}`;
+    const expr = `folder:${folder} AND resource_type:image`;
+
+    const result = await cloudinary.search
       .expression(expr)
-      .sort_by("uploaded_at", "desc")
-      .with_field("context")
+      .sort_by("created_at", "desc")
       .max_results(limit)
       .execute();
 
-    const items = (res.resources || []).map((r: any) => ({
-      _id: r.asset_id,
-      roomId,
-      url: r.secure_url,
-      publicId: r.public_id,
-      width: r.width,
-      height: r.height,
-      caption: r.context?.caption || "",
-      createdAt: r.created_at,
+    const items = (result?.resources || []).map((r: any) => ({
+      public_id: r.public_id as string,
+      url: clUrl(r.public_id, { q: 80, f: "auto" }),
+      created_at: r.created_at as string,
+      width: r.width as number,
+      height: r.height as number,
     }));
 
-    return NextResponse.json({ ok: true, items });
+    return NextResponse.json({ items });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message || "cloudinary search failed" }, { status: 500 });
+    return NextResponse.json({ items: [], error: e?.message || "search failed" }, { status: 500 });
   }
 }

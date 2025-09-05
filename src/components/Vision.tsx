@@ -27,6 +27,9 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
 
     const [mounted, setMounted] = useState(false);
     const [viewerHref, setViewerHref] = useState<string>("");
+    const [isSlideshow, setIsSlideshow] = useState(false);
+
+
     // обчислюємо "зайнятість"
     const isBusy = status === "connecting" || status === "connected";
 
@@ -45,6 +48,9 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     const didApplyOfferRef = useRef(false);
     const didSendAnswerRef = useRef(false);
     const didApplyAnswerRef = useRef(false);
+
+    const slideTimerRef = useRef<number|null>(null);
+
 
     useEffect(() => { setMounted(true); }, []);
 
@@ -331,44 +337,56 @@ peer.on("error", (e) => console.error("PEER ERROR", e));
 }
 
 
-   async function handleSnapshot() {
+  async function handleSnapshot() {
   try {
     const el = mode === "host" ? localVideoRef.current : remoteVideoRef.current;
     if (!el) throw new Error("video element not ready");
-
     const canvas = document.createElement("canvas");
     canvas.width = el.videoWidth || 640;
     canvas.height = el.videoHeight || 360;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("canvas ctx error");
     ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
-
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-
-    // перетворимо dataURL -> Blob (лайфхак через fetch)
-    const blob = await (await fetch(dataUrl)).blob();
-    const fd = new FormData();
-    fd.append("file", blob, `snap-${Date.now()}.jpg`);
-    fd.append("roomId", await ensureRoomId());
-    fd.append("caption", "");
 
     const res = await fetch("/api/upload", {
       method: "POST",
-      // ВАЖЛИВО: НЕ ставимо content-type вручну — браузер сам проставить boundary
-      headers: { "x-pin": "1234" }, 
-      body: fd,
+      headers: {
+        "content-type": "application/json",
+        "x-pin": process.env.NEXT_PUBLIC_VISION_PIN || "1234",
+      },
+      body: JSON.stringify({
+        roomId: await ensureRoomId(),
+        imageDataUrl: dataUrl,
+        series: isSlideshow ? "slideshow" : "default",
+      }),
     });
-
     if (!res.ok) {
-      const msg = await res.text().catch(() => "");
+      const msg = await res.text().catch(()=>"");
       throw new Error(`upload failed: ${msg || res.status}`);
     }
-
     setErr("");
-  } catch (e: any) {
+  } catch (e:any) {
     setErr(e.message || "snapshot error");
   }
 }
+
+function startSlideshow(intervalMs = 5000) {
+  if (slideTimerRef.current) return;
+  setIsSlideshow(true);
+  // одразу перший кадр
+  handleSnapshot();
+  slideTimerRef.current = window.setInterval(handleSnapshot, intervalMs) as any;
+}
+
+function stopSlideshow() {
+  setIsSlideshow(false);
+  if (slideTimerRef.current) {
+    clearInterval(slideTimerRef.current);
+    slideTimerRef.current = null;
+  }
+}
+
 
 
     return (
@@ -426,7 +444,10 @@ peer.on("error", (e) => console.error("PEER ERROR", e));
                     <button className="px-3 py-1 rounded bg-amber-400 text-black" onClick={handleSnapshot}>
                         📸 Зробити фото (Cloudinary)
                     </button>
-
+                    <button className={`px-3 py-1 rounded ${isSlideshow ? "bg-rose-400 text-black" : "bg-fuchsia-400 text-black"}`}
+                         onClick={() => (isSlideshow ? stopSlideshow() : startSlideshow(1000))}>
+                         {isSlideshow ? "⏹ Зупинити слайд-шоу" : "▶️ Слайд-шоу (1с)"}
+                    </button>
                     <button className="px-3 py-1 rounded bg-slate-600" onClick={handleStop}>
                         ⛔️ Зупинити
                     </button>
