@@ -29,15 +29,15 @@ export async function POST(req: Request) {
 
       const arrayBuf = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuf);
-
-      const publicIdPrefix = `vision/${roomId}/snap-${Date.now()}`;
+      const folder = `vision/${roomId}`;
+      const publicId = `snap-${Date.now()}`;
 
       // з buffer — через upload_stream
       const uploaded = await new Promise<any>((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
           {
-            folder: `vision/${roomId}`,
-            public_id: publicIdPrefix,
+            folder,
+            public_id: publicId,
             resource_type: "image",
             overwrite: true,
           },
@@ -65,9 +65,12 @@ export async function POST(req: Request) {
       if (!imageDataUrl || typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image"))
         return bad('Expected "imageDataUrl" data URL');
 
+       const folder = `vision/${roomId}`;
+       const publicId = `snap-${Date.now()}`;
+
       const uploaded = await cloudinary.uploader.upload(imageDataUrl, {
-        folder: `vision/${roomId}`,
-        public_id: `vision/${roomId}/snap-${Date.now()}`,
+        folder,
+        public_id: publicId,
         resource_type: "image",
         overwrite: true,
       });

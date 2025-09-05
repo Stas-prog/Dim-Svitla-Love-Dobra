@@ -1,30 +1,37 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-export const revalidate = 0;
-
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/mongo";
+import cloudinary from "@/lib/cloudinary";
 
-/**
- * GET /api/slides?roomId=...&limit=...
- * Повертає [{ _id, roomId, url, publicId, caption, width, height, createdAt }, ...]
- */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const roomId = (url.searchParams.get("roomId") || "").trim();
-  const limit = Math.min(parseInt(url.searchParams.get("limit") || "60", 10) || 60, 200);
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "90", 10) || 90, 200);
 
   if (!roomId) {
     return NextResponse.json({ ok: false, error: "roomId required" }, { status: 400 });
   }
 
-  const db = await getDb();
-  const rows = await db
-    .collection("slides")
-    .find({ roomId, url: { $exists: true, $ne: "" } })
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .toArray();
+  try {
+    const expr = `folder="vision/${roomId}"`;
+    const res = await cloudinary.search
+      .expression(expr)
+      .sort_by("uploaded_at", "desc")
+      .with_field("context")
+      .max_results(limit)
+      .execute();
 
-  return NextResponse.json({ ok: true, items: rows });
+    const items = (res.resources || []).map((r: any) => ({
+      _id: r.asset_id,
+      roomId,
+      url: r.secure_url,
+      publicId: r.public_id,
+      width: r.width,
+      height: r.height,
+      caption: r.context?.caption || "",
+      createdAt: r.created_at,
+    }));
+
+    return NextResponse.json({ ok: true, items });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e.message || "cloudinary search failed" }, { status: 500 });
+  }
 }

@@ -1,70 +1,89 @@
-import { NextResponse } from "next/server";
-import { getDb } from "@/lib/mongo";
-import {cloudinaryUrl} from "@/lib/cloudinary";
-
+// /src/app/api/decrypt/route.ts
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
 
+import { NextResponse } from "next/server";
+import cloudinary from "@/lib/cloudinary";
 
-type Body = {
-  prompt?: string;
-  roomId?: string;
-  limit?: number;
-  // опц. PIN, щоб уберегти ендпойнт від сторонніх
-  pin?: string;
+type Slide = {
+  public_id: string;
+  secure_url: string;
+  thumb_url: string;
+  created_at: string;
+  width: number;
+  height: number;
+  format: string;
 };
 
-export async function POST(req: Request) {
+function bad(msg: string, status = 400) {
+  return NextResponse.json({ ok: false, error: msg }, { status });
+}
+
+function ok(data: unknown, status = 200) {
+  return NextResponse.json(data, { status });
+}
+
+async function fetchSlides(roomId: string, limit = 50): Promise<Slide[]> {
+  const folder = `vision/${roomId}`;
+
+  const res = await cloudinary.search
+    .expression(`folder=${folder} AND resource_type:image`)
+    .sort_by("created_at", "desc")
+    .max_results(Math.min(limit, 200))
+    .execute();
+
+  const resources = (res?.resources ?? []) as Array<{
+    public_id: string;
+    secure_url: string;
+    created_at: string;
+    width: number;
+    height: number;
+    format: string;
+  }>;
+
+  return resources.map((r) => ({
+    public_id: r.public_id,
+    secure_url: r.secure_url, // оригінал
+    // компактне прев’ю через builder:
+    thumb_url: cloudinary.url(r.public_id, {
+      type: "upload",
+      secure: true,
+      transformation: [{ w: 640, h: 360, crop: "limit", q: "auto" }],
+    }),
+    created_at: r.created_at,
+    width: r.width,
+    height: r.height,
+    format: r.format,
+  }));
+}
+
+// GET ?roomId=...&limit=...
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const roomId = (url.searchParams.get("roomId") || "").trim();
+  const limit = parseInt(url.searchParams.get("limit") || "50", 10) || 50;
+
+  if (!roomId) return bad("roomId required");
   try {
-    const { prompt = "", roomId = "", limit = 1, pin = "" } = (await req.json()) as Body;
-
-    // 🔒 PIN (необов’язково). Якщо у .env.local є VISION_PIN — вимагаємо збіг.
-    if (process.env.VISION_PIN) {
-      const okPin = pin || req.headers.get("x-pin") || "";
-      if (okPin !== process.env.VISION_PIN) {
-        return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-      }
-    }
-
-    const db = await getDb();
-    const col = db.collection("snaps"); // документи з { roomId, publicId, caption?, createdAt? }
-
-    const filter: any = { publicId: { $exists: true, $ne: "" } };
-    if (roomId) filter.roomId = roomId;
-
-    const docs = await col
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .limit(Math.min(Math.max(limit, 1), 10))
-      .toArray();
-
-    const slides = docs.map((d) => {
-      const id = d.publicId as string;
-      return {
-        id: String(d._id),
-        roomId: d.roomId,
-        caption: d.caption || "",
-        createdAt: d.createdAt ?? null,
-        thumb: cloudinaryUrl(id, { w: 360, h: 240, q: 70, f: "auto" }),
-        view: cloudinaryUrl(id, { w: 1280, h: 720, q: 80, f: "auto" }),
-        full: cloudinaryUrl(id, { w: 1920, h: 1080, q: 85, f: "auto" }),
-      };
-    });
-
-    // 🔮 Поки що відповідаємо “людяно”: повертаємо слайди + eco-анонс аналізу.
-    // Далі сюди можна під'єднати ML-опис кадру або модальне Q/A.
-    return NextResponse.json({
-      ok: true,
-      prompt,
-      count: slides.length,
-      slides,
-      message:
-        slides.length === 0
-          ? "Слайдів не знайдено. Зроби знімок у Vision → Mongo → Cloudinary."
-          : "Слайди готові. Аналітику кадрів під’єднаємо наступним кроком.",
-    });
+    const items = await fetchSlides(roomId, limit);
+    return ok({ ok: true, items });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message || "server error" }, { status: 500 });
+    return bad(e?.message || "cloudinary error", 500);
+  }
+}
+
+// POST { roomId: string, limit?: number }
+export async function POST(req: Request) {
+  const body = await req.json().catch(() => null);
+  const roomId = String(body?.roomId || "").trim();
+  const limit = Number(body?.limit ?? 50);
+
+  if (!roomId) return bad("roomId required");
+  try {
+    const items = await fetchSlides(roomId, limit);
+    return ok({ ok: true, items });
+  } catch (e: any) {
+    return bad(e?.message || "cloudinary error", 500);
   }
 }
