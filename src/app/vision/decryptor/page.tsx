@@ -28,7 +28,7 @@ export default function Decryptor() {
     <main className="max-w-6xl mx-auto p-4 sm:p-6">
       <h1 className="text-xl font-semibold mb-4">🔎 Дешефратор</h1>
       <input
-        className="w-full max-w-md rounded bg-slate-900 border border-slate-600 px-3 py-2"
+        className="w-full max-w-md rounded bg-slate-300 border border-slate-600 px-3 py-2"
         placeholder="Введи roomId"
         value={roomId}
         onChange={e=>setRoomId(e.target.value.trim())}
