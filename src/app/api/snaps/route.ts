@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
-import { cloudinary } from "@/lib/cloudinary";
+import cloudinary  from "@/lib/cloudinary";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
