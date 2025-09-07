@@ -26,7 +26,7 @@ export default function Page() {
           <FadeInWhenVisible>
             <section className="relative rounded-2xl bg-white/60 backdrop-blur-md p-8 shadow-soft">
               <h1 className="text-4xl font-bold mb-6">✨ Дім Світла, Любові і Добра ✨</h1>
-              <p className="max-w-xl mx-auto text-lg text-slate-200 mb-8">
+              <p className="max-w-xl mx-auto text-lg text-slate-600 mb-8">
                 Ласкаво просимо у наш простір. Тут народжується нове бачення світу —
                 з гармонією, єдністю та відкритим серцем. 💛
               </p>
