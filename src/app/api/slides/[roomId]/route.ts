@@ -6,7 +6,7 @@ import cloudinary from "@/lib/cloudinary";
 
 type Params = { roomId: string };
 
-export async function GET(_req: Request, { params }: { params: Params }) {
+export async function GET(_req: Request,  params: Params ) {
   const roomId = params.roomId;
   if (!roomId) return NextResponse.json({ items: [] });
 
