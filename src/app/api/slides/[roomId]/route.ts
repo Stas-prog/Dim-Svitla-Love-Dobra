@@ -4,10 +4,14 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import cloudinary from "@/lib/cloudinary";
 
-type Params = { roomId: string };
 
-export async function GET(_req: Request,  params: Params ) {
-  const roomId = params.roomId;
+export async function GET(_req: Request,  {
+  params,
+}: {
+  params: Promise<{ roomId: string }>;
+} ) {
+      const { roomId } = await params;
+
   if (!roomId) return NextResponse.json({ items: [] });
 
   try {
