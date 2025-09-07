@@ -334,17 +334,19 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     slideCountRef.current = 0;
     setSlideOn(true);
 
-     handleSnapshot();
-     slideCountRef.current += 1;
-
     slideTimerRef.current = window.setInterval(async () => {
       if (!slideOn) return;
       if (slideCountRef.current >= slideLimit) {
         stopSlideshow();
         return;
       }
+      try {
       const ok = await handleSnapshot();
-      if (ok) slideCountRef.current += 1;
+      if (ok) slideCountRef.current += 1;}
+      catch (e: any) {
+      setErr(e.message || "snapshot error");
+      return false;
+    }
     }, slideDelayMs) as any;
   }
 
