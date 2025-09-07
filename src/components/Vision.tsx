@@ -341,8 +341,8 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         return;
       }
       try {
-      const ok = await handleSnapshot();
-      if (ok) slideCountRef.current += 1;}
+      handleSnapshot();
+      slideCountRef.current += 1;}
       catch (e: any) {
       setErr(e.message || "snapshot error");
       return false;
