@@ -1,74 +1,51 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-export const revalidate = 0;
-
 import { NextResponse } from "next/server";
-import cloudinary from "@/lib/cloudinary";
+import { cldSearch } from "@/lib/cloudinary";
 
-type RoomItem = {
-  roomId: string;
-  path: string;
-  lastUploadedAt: string | null;
-};
-
-// зібрати всі підпапки у "vision"
-async function listRoomFolders(): Promise<{ name: string; path: string }[]> {
-  const folders: { name: string; path: string }[] = [];
-  let next: string | undefined = undefined;
-
-  do {
-    // @ts-ignore cloudinary типи для sub_folders мають слабку сигнатуру
-    const resp = await cloudinary.api.sub_folders("vision", {
-      next_cursor: next,
-      max_results: 100,
-    });
-    const chunk = (resp?.folders || []).map((f: any) => ({
-      name: f.name as string,
-      path: f.path as string, // "vision/<roomId>"
-    }));
-    folders.push(...chunk);
-    next = resp?.next_cursor;
-  } while (next);
-
-  return folders;
-}
-
-// дістаємо останній аплоад у папці
-async function latestInFolder(path: string): Promise<string | null> {
-  const res = await cloudinary.search
-    .expression(`folder=${path} AND resource_type:image`)
-    .sort_by("created_at", "desc")
-    .max_results(1)
-    .execute();
-
-  const r = (res?.resources ?? [])[0] as { created_at?: string } | undefined;
-  return r?.created_at ?? null;
-}
-
-export async function GET() {
+// GET /api/vision/rooms?limit=200
+export async function GET(req: Request) {
   try {
-    const folders = await listRoomFolders();
-    const items: RoomItem[] = [];
+    const url = new URL(req.url);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10) || 200, 500);
 
-    // послідовно, щоб не впертися у ліміти API; якщо треба — можна зробити batched
-    for (const f of folders) {
-      const last = await latestInFolder(f.path);
-      items.push({
-        roomId: f.name,
-        path: f.path,
-        lastUploadedAt: last,
-      });
+    // Беремо останні зображення з УСІХ кімнат: folder:vision/*
+    // Сортуємо за новизною, щоб легше було скласти "lastUploadedAt" по кімнатах
+    const { resources, next_cursor } = await cldSearch({
+      folder: "vision/*", // ← важливо: ловимо всі підпапки
+      max_results: limit,
+      sort_by: [{ created_at: "desc" }],
+    });
+
+    // Групуємо по roomId, який витягуємо з public_id: "vision/<roomId>/file"
+    type Room = { roomId: string; path: string; lastUploadedAt: string | null };
+    const map = new Map<string, Room>();
+
+    for (const r of resources || []) {
+      const pid: string = r.public_id || "";
+      // public_id має формат "vision/<roomId>/filename"
+      const parts = pid.split("/");
+      if (parts.length < 3 || parts[0] !== "vision") continue;
+      const roomId = parts[1];
+
+      const existing = map.get(roomId);
+      const createdAt = r.created_at || null;
+      if (!existing) {
+        map.set(roomId, {
+          roomId,
+          path: `vision/${roomId}`,
+          lastUploadedAt: createdAt,
+        });
+      }
     }
 
-    // новіші — вище
-    items.sort((a, b) => {
-      const A = a.lastUploadedAt || "";
-      const B = b.lastUploadedAt || "";
-      return A < B ? 1 : A > B ? -1 : 0;
-    });
+    const items = Array.from(map.values())
+      .sort((a, b) => {
+        const ta = a.lastUploadedAt ? Date.parse(a.lastUploadedAt) : 0;
+        const tb = b.lastUploadedAt ? Date.parse(b.lastUploadedAt) : 0;
+        return tb - ta;
+      });
 
-    return NextResponse.json({ ok: true, items });
+    return NextResponse.json({ items, nextCursor: next_cursor || null });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "cloudinary error" }, { status: 500 });
+    return NextResponse.json({ items: [], nextCursor: null, error: e?.message || "rooms failed" }, { status: 500 });
   }
 }

@@ -461,18 +461,11 @@ function stopSlideshow() {
                 >
                     🗂 Відкрити список кімнат
                 </a>
-                {roomId && (
-                    <a
-                        href={`/snaps/${roomId}`}
-                        className="px-3 py-1 rounded bg-black text-amber-700 text-sm"
-                        target="_blank"
-                    >
-                        🖼 Фото цієї кімнати
-                    </a>
-                )}
+               {roomId && (<a href={`/snaps/${encodeURIComponent(roomId)}`} className="px-3 py-1 rounded bg-black text-amber-700 text-sm" target="_blank" >
+                    🖼 Фото цієї кімнати
+                </a>
+              )}
             </div>
-
-
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-lg bg-slate-800 p-2">
                     <div className="text-xs text-slate-400 px-2 pt-1">local</div>
@@ -492,23 +485,21 @@ function stopSlideshow() {
 
                 <a
                     className="inline-block px-3 py-2 rounded bg-slate-600 text-red-700 hover:bg-sky-300"
-                    href="/vision/rooms"
+                    href="/snaps"
                 >
                     🗂 Відкрити список кімнат
                 </a>
 
                 {roomId && (
-                    <a
-                        className="inline-block mt-3 text-xs underline text-sky-300"
-                        href={`/snaps/${encodeURIComponent(roomId)}`}
-                        target="_blank"
-                    >
-                        👉 Відкрити фото цієї кімнати
-                    </a>
-                )}
-
+                <a
+                  href={`/snaps/${encodeURIComponent(roomId)}`}
+                  className="px-3 py-1 rounded bg-black text-amber-700 text-sm"
+                  target="_blank"
+                >
+                  🖼 Фото цієї кімнати
+                </a>
+              )}
             </div>
-
         </div>
     );
 }

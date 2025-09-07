@@ -1,39 +1,32 @@
 import { NextResponse } from "next/server";
-import cloudinary, { clUrl } from "@/lib/cloudinary";
+import { cloudinaryUrl, cldSearch } from "@/lib/cloudinary";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
+// GET /api/slides?roomId=...&limit=100&cursor=...
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const roomId = (url.searchParams.get("roomId") || "").trim();
-    const series = (url.searchParams.get("series") || "default") as "default" | "slideshow";
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "60", 10) || 60, 200);
+    const roomId = url.searchParams.get("roomId") || "";
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 200);
+    const cursor = url.searchParams.get("cursor") || undefined;
 
-    if (!roomId) {
-      return NextResponse.json({ items: [] });
-    }
+    if (!roomId) return NextResponse.json({ items: [], nextCursor: null });
 
-    const folder = `vision/${roomId}${series === "slideshow" ? "/slideshow" : ""}`;
-    const expr = `folder:${folder} AND resource_type:image`;
+    // шукаємо ЗОБРАЖЕННЯ у папці vision/<roomId>, від старих до нових
+    const { resources, next_cursor } = await cldSearch({
+      folder: `vision/${roomId}`,
+      max_results: limit,
+      next_cursor: cursor,
+      sort_by: [{ created_at: "asc" }],
+    });
 
-    const result = await cloudinary.search
-      .expression(expr)
-      .sort_by("created_at", "desc")
-      .max_results(limit)
-      .execute();
-
-    const items = (result?.resources || []).map((r: any) => ({
-      public_id: r.public_id as string,
-      url: clUrl(r.public_id, { q: 80, f: "auto" }),
-      created_at: r.created_at as string,
-      width: r.width as number,
-      height: r.height as number,
+    const items = (resources || []).map((r: any) => ({
+      id: r.asset_id || r.public_id,
+      url: cloudinaryUrl(r.public_id, { w: 1600, q: 80, f: "jpg", fit: "scale" }),
+      createdAt: r.created_at,
     }));
 
-    return NextResponse.json({ items });
+    return NextResponse.json({ items, nextCursor: next_cursor || null });
   } catch (e: any) {
-    return NextResponse.json({ items: [], error: e?.message || "search failed" }, { status: 500 });
+    return NextResponse.json({ items: [], nextCursor: null, error: e?.message || "search failed" }, { status: 500 });
   }
 }

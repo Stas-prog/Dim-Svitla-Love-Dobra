@@ -30,8 +30,8 @@ export default function RoomsPage() {
       {loading && <div className="text-slate-400">Loading…</div>}
       {!loading && rooms.length===0 && <div className="text-slate-400">Поки порожньо.</div>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {rooms.map(r=>(
-          <a key={r.path} href={`/snaps/${encodeURIComponent(r.roomId)}`}
+        {rooms.map((r,i)=>(
+          <a key={i} href={`/snaps/${encodeURIComponent(r.roomId)}`}
              className="rounded-xl border border-slate-700 hover:border-emerald-400 p-3 block">
             <div className="font-medium">{r.roomId}</div>
             <div className="text-xs text-slate-400">{r.lastUploadedAt ? new Date(r.lastUploadedAt).toLocaleString() : "—"}</div>

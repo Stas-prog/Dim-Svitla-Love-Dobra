@@ -1,12 +1,14 @@
 export const dynamic = "force-dynamic";
 
-type RoomsResp = { ok: boolean; items: { roomId: string; lastUploadedAt: string | null }[] };
+type RoomItem = { roomId: string; lastSeen: string };
 
-async function getRooms(): Promise<RoomsResp["items"]> {
-  // відносний запит, щоб не залежати від BASE_URL
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/vision/rooms`, { cache: "no-store" });
+async function getRooms(): Promise<RoomItem[]> {
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/vision/rooms`,
+    { cache: "no-store" }
+  );
   if (!res.ok) return [];
-  const j = (await res.json()) as RoomsResp | any;
+  const j = await res.json();
   return Array.isArray(j?.items) ? j.items : [];
 }
 
@@ -33,7 +35,7 @@ export default async function SnapsIndexPage() {
             >
               <div className="font-mono text-xs break-all">{r.roomId}</div>
               <div className="text-[11px] text-slate-400 mt-1">
-                {r.lastUploadedAt ? new Date(r.lastUploadedAt).toLocaleString() : "—"}
+                {new Date(r.lastSeen).toLocaleString()}
               </div>
               <div className="text-xs text-sky-300 mt-2 underline">Перейти до фото</div>
             </a>

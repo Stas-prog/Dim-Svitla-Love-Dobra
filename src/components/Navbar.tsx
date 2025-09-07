@@ -13,7 +13,7 @@ export default function Navbar() {
         <nav className="w-full bg-slate-900 text-white px-6 py-3 flex gap-6 items-center shadow-md">
             <Link href="/" className={linkClass("/")}>🏠 Home</Link>
             <Link href="/vision" className={linkClass("/vision")}>👁 Vision</Link>
-            <Link href="/vision/rooms" className={linkClass("/vision/rooms")}>🗂 Rooms</Link>
+            <Link href="/vision/decryptor" className={linkClass("/vision/decryptor")}>🗂 Слайди</Link>
             <Link href="/mission" className={linkClass("/mission")}>🌍 Місія</Link>
             <Link href="/about" className={linkClass("/about")}>👥 Про нас</Link>
             <Link href="/contact" className={linkClass("/contact")}>📬 Контакти</Link>
