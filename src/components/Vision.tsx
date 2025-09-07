@@ -297,7 +297,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-pin": process.env.NEXT_PUBLIC_VISION_PIN || "1234",
+          "x-pin": process.env.VISION_PIN || "1234",
         },
         body: JSON.stringify({
           roomId: await ensureRoomId(),
@@ -334,17 +334,8 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
     slideCountRef.current = 0;
     setSlideOn(true);
 
-    // перший кадр відразу:
-    void (async () => {
-      if (isTakingRef.current) return;
-      isTakingRef.current = true;
-      const ok = await handleSnapshot();
-      if (ok) slideCountRef.current += 1;
-      isTakingRef.current = false;
-      if (slideCountRef.current >= slideLimit) {
-        stopSlideshow();
-      }
-    })();
+     handleSnapshot();
+     slideCountRef.current += 1;
 
     slideTimerRef.current = window.setInterval(async () => {
       if (!slideOn) return;
@@ -352,11 +343,8 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
         stopSlideshow();
         return;
       }
-      if (isTakingRef.current) return;
-      isTakingRef.current = true;
       const ok = await handleSnapshot();
       if (ok) slideCountRef.current += 1;
-      isTakingRef.current = false;
     }, slideDelayMs) as any;
   }
 
@@ -431,7 +419,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             <select
               className="rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm"
               value={slideLimit}
-              onChange={(e)=> setSlideLimit(parseInt(e.target.value,10))}
+              onChange={(e)=> setSlideLimit(Number(e.target.value))}
               disabled={slideOn}
               title="Кількість кадрів у сесії"
             >
@@ -445,7 +433,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             <select
               className="rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm"
               value={slideDelayMs}
-              onChange={(e)=> setSlideDelayMs(parseInt(e.target.value,10))}
+              onChange={(e)=> setSlideDelayMs(Number(e.target.value))}
               disabled={slideOn}
               title="Затримка між кадрами"
             >
@@ -507,7 +495,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
           Всі кімнати та свіжі кадри — на окремих сторінках.
         </p>
 
-        <a className="inline-block px-3 py-2 rounded bg-slate-600 text-red-700 hover:bg-sky-300" href="/vision/rooms">
+        <a className="inline-block px-3 py-2 rounded bg-slate-600 text-red-700 hover:bg-sky-300" href="/snaps">
           🗂 Відкрити список кімнат
         </a>
 
