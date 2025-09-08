@@ -318,12 +318,14 @@ export default function Vision() {
       fd.append("roomId", await ensureRoomId());
       fd.append("file", blob, `snap-${Date.now()}.jpg`);
       // опціонально: підпис
-      // fd.append("caption", "Made with Vision");
+      fd.append("caption", "Made with Vision");
+      
       // якщо ти хочеш пін із клієнта (безпечно лише як публічний), додай NEXT_PUBLIC_VISION_PIN
       
 
       const res = await fetch("/api/upload", {
         method: "POST",
+        headers: { "x-pin": process.env.VISION_PIN || "1234" }, 
         body: fd,
       });
 
@@ -355,25 +357,22 @@ export default function Vision() {
       // стоп якщо не connected
       if (status !== "connected") return;
 
-      // якщо виконали ліміт — вимикаємося
-      setShotsTaken((prev) => {
-        const next = prev + 1;
-        return next;
-      });
-
       const ok = await handleSnapshot();
       if (!ok) return;
 
       // перевіримо ліміт після успішного кадру
       setShotsTaken((prev) => {
+      const next = prev + 1;
+        
         if (prev >= slideshowLimit) {
           setSlideshowEnabled(false);
           if (slideTimerRef.current) {
             clearInterval(slideTimerRef.current);
             slideTimerRef.current = null;
           }
+            return prev;
         }
-        return prev;
+        return next;
       });
     }, 2000);
 
@@ -383,7 +382,6 @@ export default function Vision() {
         slideTimerRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slideshowEnabled, slideshowLimit, status, mode]);
 
   return (
