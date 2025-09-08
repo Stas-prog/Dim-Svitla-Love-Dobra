@@ -24,6 +24,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
   const [roomId, setRoomId] = useState<string>(initialRoomId ?? "");
   const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
   const [err, setErr] = useState<string>("");
+  const [open, setOpen] = useState(false);
 
   const [mounted, setMounted] = useState(false);
   const [viewerHref, setViewerHref] = useState<string>("");
@@ -320,7 +321,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
 
   // --- Слайд-шоу (з лімітом)
   function stopSlideshow() {
-    setSlideOn(false);
+    setOpen(false);
     slideCountRef.current = 0;
     if (slideTimerRef.current) {
       clearInterval(slideTimerRef.current);
@@ -329,13 +330,12 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
   }
 
   function startSlideshow() {
-    if (slideOn) return;
+    setOpen(true)
     setErr("");
     slideCountRef.current = 0;
-    setSlideOn(true);
 
     slideTimerRef.current = window.setInterval(async () => {
-      if (!slideOn) return;
+      if (!open) return;
       if (slideCountRef.current >= slideLimit) {
         stopSlideshow();
         return;
