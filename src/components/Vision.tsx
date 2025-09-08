@@ -47,11 +47,15 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
 
   // --- Слайд-шоу контроль
   const [slideOn, setSlideOn] = useState(false);
-  const slideTimerRef = useRef<number | null>(null);
-  const [slideLimit, setSlideLimit] = useState<number>(50);
-  const slideCountRef = useRef<number>(0);
+  const [slideshowEnabled, setSlideshowEnabled] = useState(false);
+//   const slideTimerRef = useRef<number | null>(null);
+//   const [slideLimit, setSlideLimit] = useState<number>(50);
+//   const slideCountRef = useRef<number>(0);
   const [slideDelayMs, setSlideDelayMs] = useState<number>(1200); // інтервал між кадрами
-  const isTakingRef = useRef(false); // щоб не накладалися запити
+//   const isTakingRef = useRef(false); // щоб не накладалися запити
+  const [slideshowLimit, setSlideshowLimit] = useState(20);
+const slideshowCountRef = useRef(0);
+const slideshowTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -270,7 +274,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
   function handleStop() {
     setErr("");
     setStatus("idle");
-    stopSlideshow();
+    setSlideshowEnabled(false);
     destroyPeer();
     try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch { }
     streamRef.current = null;
@@ -320,41 +324,84 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
   }
 
   // --- Слайд-шоу (з лімітом)
-  function stopSlideshow() {
-    setOpen(false);
-    slideCountRef.current = 0;
-    if (slideTimerRef.current) {
-      clearInterval(slideTimerRef.current);
-      slideTimerRef.current = null;
-    }
-  }
+//   function stopSlideshow() {
+//     setOpen(false);
+//     setSlideOn(false);
+//     slideCountRef.current = 0;
+//     if (slideTimerRef.current) {
+//       clearInterval(slideTimerRef.current);
+//       slideTimerRef.current = null;
+//     }
+//   }
 
-  function startSlideshow() {
-    setOpen(true)
-    setErr("");
-    slideCountRef.current = 0;
+//   function startSlideshow() {
+//     setSlideOn(true);
+//     setOpen(true)
+//     setErr("");
+//     slideCountRef.current = 0;
 
-    slideTimerRef.current = window.setInterval(async () => {
-      if (!open) return;
-      if (slideCountRef.current >= slideLimit) {
-        stopSlideshow();
+//     slideTimerRef.current = window.setInterval(async () => {
+//       if (!open) return;
+//       if (slideCountRef.current >= slideLimit) {
+//         stopSlideshow();
+//         return;
+//       }
+//       try {
+//       handleSnapshot();
+//       slideCountRef.current += 1;}
+//       catch (e: any) {
+//       setErr(e.message || "snapshot error");
+//       return false;
+//     }
+//     }, slideDelayMs) as any;
+//   }
+
+//   function toggleSlideshow() {
+//     if (!slideOn) startSlideshow();
+//     else stopSlideshow();
+//   }
+
+
+
+// запуск/зупинка слайдшоу
+useEffect(() => {
+  if (slideshowEnabled) {
+    slideshowCountRef.current = 0;
+    slideshowTimerRef.current = setInterval(async () => {
+      if (slideshowCountRef.current >= slideshowLimit) {
+        setSlideshowEnabled(false);
+        if (slideshowTimerRef.current) {
+          clearInterval(slideshowTimerRef.current);
+          slideshowTimerRef.current = null;
+        }
         return;
       }
-      try {
-      handleSnapshot();
-      slideCountRef.current += 1;}
-      catch (e: any) {
-      setErr(e.message || "snapshot error");
-      return false;
+      await handleSnapshot(); // робимо фото
+      slideshowCountRef.current++;
+    }, slideDelayMs); // інтервал між кадрами
+  } else {
+    if (slideshowTimerRef.current) {
+      clearInterval(slideshowTimerRef.current);
+      slideshowTimerRef.current = null;
     }
-    }, slideDelayMs) as any;
   }
+  return () => {
+    if (slideshowTimerRef.current) {
+      clearInterval(slideshowTimerRef.current);
+      slideshowTimerRef.current = null;
+    }
+  };
+}, [slideshowEnabled, slideshowLimit, slideDelayMs]);
 
-  function toggleSlideshow() {
-    if (!slideOn) startSlideshow();
-    else stopSlideshow();
-  }
+ if (!slideshowEnabled) {
+        if (slideshowTimerRef.current) {
+          clearInterval(slideshowTimerRef.current);
+          slideshowTimerRef.current = null;
+        }
+        return;
+      }
 
+      
   return (
     <div className="rounded-2xl p-4 my-6 bg-slate-900 text-slate-50 shadow vision-ui">
       <div className="flex items-center gap-2 flex-wrap">
@@ -420,9 +467,9 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             <label className="text-xs text-slate-300">Пакет:</label>
             <select
               className="rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm"
-              value={slideLimit}
-              onChange={(e)=> setSlideLimit(Number(e.target.value))}
-              disabled={slideOn}
+              value={slideshowLimit}
+              onChange={(e)=> setSlideshowLimit(Number(e.target.value))}
+              disabled={slideshowEnabled}
               title="Кількість кадрів у сесії"
             >
               <option value={20}>20</option>
@@ -436,7 +483,7 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
               className="rounded bg-slate-900 border border-slate-600 px-2 py-1 text-sm"
               value={slideDelayMs}
               onChange={(e)=> setSlideDelayMs(Number(e.target.value))}
-              disabled={slideOn}
+              disabled={slideshowEnabled}
               title="Затримка між кадрами"
             >
               <option value={800}>0.8s</option>
@@ -447,15 +494,15 @@ export default function Vision({ initialRoomId, initialMode }: VisionProps) {
             </div>
             <button
               className={`px-3 py-1 rounded ${slideOn ? "bg-rose-500" : "bg-indigo-400"} text-black`}
-              onClick={toggleSlideshow}
+              onClick={() => setSlideshowEnabled(!slideshowEnabled)}
               disabled={status!=="connected"}
               title="Слайд-шоу з лімітом пакетів"
             >
-              {slideOn ? "⏹ Зупинити слайд-шоу" : "▶️ Слайд-шоу"}
+              {slideshowEnabled ? "⏹ Зупинити слайд-шоу" : "▶️ Слайд-шоу"}
             </button>
 
             <span className="text-xs text-slate-400 ml-2">
-              {slideOn ? `кадрів: ${slideCountRef.current}/${slideLimit}` : `готово до зйомки`}
+              {slideshowEnabled ? `кадрів: ${slideshowCountRef.current}/${slideshowLimit}` : `готово до зйомки`}
             </span>
           </div>
         </div>
