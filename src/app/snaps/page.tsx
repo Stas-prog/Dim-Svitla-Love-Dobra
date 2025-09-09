@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-type RoomItem = { roomId: string; lastSeen: string };
+type RoomItem = { roomId: string; lastUploadedAt: string };
 
 async function getRooms(): Promise<RoomItem[]> {
   const res = await fetch(
@@ -35,7 +35,7 @@ export default async function SnapsIndexPage() {
             >
               <div className="font-mono text-xs break-all">{r.roomId}</div>
               <div className="text-[11px] text-slate-400 mt-1">
-                {new Date(r.lastSeen).toLocaleString()}
+                {new Date(r.lastUploadedAt).toLocaleString()}
               </div>
               <div className="text-xs text-sky-300 mt-2 underline">Перейти до фото</div>
             </a>

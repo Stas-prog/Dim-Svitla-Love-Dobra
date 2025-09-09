@@ -1,6 +1,7 @@
 'use client'
 
 import Navbar from "@/components/Navbar";
+import Doors from "@/components/Doors";
 import dynamic from "next/dynamic";
 import { ParallaxProvider, ParallaxLayer } from "@/lib/parallax";
 import ParallaxBackground from "@/components/ParallaxBackground";
@@ -12,6 +13,7 @@ import FadeInWhenVisible from "@/components/FadeInWhenVisible";
 export default function Page() {
   return (
     <>
+      <Doors/>
       <Navbar />
       <ParallaxProvider>
         <main className="relative mx-auto max-w-5xl px-6 py-14">
