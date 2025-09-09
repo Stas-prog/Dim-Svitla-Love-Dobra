@@ -109,19 +109,19 @@ export default function Doors() {
           </div>
 
           {/* самі двері */}
-          <div className="relative flex-1 bg-gradient-to-b from-slate-950 to-black overflow-hidden">
+          <div className="relative flex-1 bg-gradient-to-b from-pink-200 to-pink-100 overflow-hidden">
             {/* стулки */}
             <div className="absolute inset-0 flex">
               <div
-                className={`flex-1 border-r border-slate-700 bg-[linear-gradient(180deg,#0b1220,#0f172a)]
+                className={`flex-1 border-r border-slate-1500 bg-[linear-gradient(180deg,#0b1220,#0f172a)]
                 shadow-[inset_-8px_0_30px_rgba(0,0,0,.35)]
-                transform transition-transform duration-700 ease-in-out
+                transform transition-transform duration-1500 ease-in-out
                 ${doorsOpen ? "-translate-x-full" : "translate-x-0"}`}
               />
               <div
-                className={`flex-1 border-l border-slate-700 bg-[linear-gradient(180deg,#0b1220,#0f172a)]
+                className={`flex-1 border-l border-slate-1500 bg-[linear-gradient(180deg,#0b1220,#0f172a)]
                 shadow-[inset_8px_0_30px_rgba(0,0,0,.35)]
-                transform transition-transform duration-700 ease-in-out
+                transform transition-transform duration-1500 ease-in-out
                 ${doorsOpen ? "translate-x-full" : "translate-x-0"}`}
               />
             </div>
@@ -141,7 +141,7 @@ export default function Doors() {
               <div className="flex flex-col sm:flex-col items-center gap-2 mt-4">
                 <button
                   onClick={handleShowText}
-                  className="px-3 py-2 mb-4 rounded-lg bg-sky-600 hover:bg-sky-500 transition text-pink-600 text-sm font-semibold sm:text-base"
+                  className="px-3 py-2 mb-4 rounded-lg bg-sky-600 hover:bg-sky-500 transition text-amber-800 text-sm font-normal sm:text-base"
                 >
                   Прочитай перед тим, як увійти
                 </button>
@@ -162,7 +162,7 @@ export default function Doors() {
       <PortalModal open={showText}>
         <div className="p-4 sm:p-6">
           <h2 className="text-lg sm:text-xl text-lime-600 font-semibold mb-3">Напис на дверях</h2>
-          <div className="space-y-3 text-pink-400 text-sm sm:text-base leading-relaxed">
+          <div className="space-y-3 text-pink-300 text-sm sm:text-base leading-relaxed">
             <p>
               Ти входиш у Дім Світла. Тут панують спокій, гідність і ясність.
               Кожен, хто ступає через ці двері, шукає правду — і не боїться її світла.
