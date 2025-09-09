@@ -97,7 +97,7 @@ export default function Doors() {
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
                 />
-                не показувати знову 1 день
+                 відкриті на добу
               </label>
               <button
                 onClick={handleEnter}
