@@ -46,8 +46,12 @@ export default function Navbar() {
               📸 Snaps
             </Link>
             <Link href="/manifest" className={linkClass("/manifest")}>
-              Маніфест
+              📜 Маніфест
             </Link>
+            <Link href="/rooms" className={linkClass("/rooms")}>
+              🏛 Кімнати
+            </Link>
+
           </div>
 
           {/* Бургер */}
@@ -109,7 +113,10 @@ export default function Navbar() {
             📸 Snaps
           </Link>
           <Link href="/manifest" className={linkClass("/manifest")}>
-            Маніфест
+            📜 Маніфест
+          </Link>
+          <Link href="/rooms" className={linkClass("/rooms")}>
+             🏛 Кімнати
           </Link>
         </div>
       )}
