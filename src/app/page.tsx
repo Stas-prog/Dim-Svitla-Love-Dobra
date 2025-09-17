@@ -39,7 +39,7 @@ export default function Page() {
           </div>
 
       </header>
-      <div style={{ width: '100%', height: '300px', position: 'relative', overflow: 'hidden', marginBottom: '6rem' }}>
+      <div style={{ width: '100%', height: '300px', position: 'relative', overflow: 'hidden', marginBottom: '4rem' }}>
           <Image
             src="/inter2.jpg"
             alt="Interdimensional Light House"
@@ -51,7 +51,7 @@ export default function Page() {
                  {/* <div className="min-h-screen bg-gradient-to-b from-black via-slate-900 to-zinc-900 text-white antialiased"> */}
       <div className="max-w-6xl mx-auto px-6 py-16">
         {/* Hero / Message */}
-        <section className="bg-white/5 rounded-2xl p-8 md:p-12 mb-10 ring-1 ring-white/6">
+        <section className="bg-white/5 rounded-2xl p-8 md:p-12 mb-6 ring-1 ring-white/6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
             <div>
               <h2 className="text-xl text-red-600 sm:text-4xl font-bold leading-tight">
