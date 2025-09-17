@@ -1,9 +1,7 @@
-import Navbar from "@/components/Navbar";
 
 export default function ContactPage() {
     return (
         <div>
-            <Navbar />
             <main className="p-6">
                 <h1 className="text-2xl font-bold mb-4">📬 Контакти</h1>
                 <p>
