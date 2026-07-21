@@ -31,6 +31,24 @@ export default function MeditationRoom() {
             </div>
         <div className="mt-3 rounded-xl border border-slate-700 bg-slate-800 p-4 text-slate-300">
             <h2 className="text-xl font-semibold">
+                Yoga Nidra
+            </h2>
+            <p>Deep relaxation of body and mind. Recommended while lying down and wearing headphones.</p>
+            <a href="https://youtu.be/ApQ9NovgnA4?si=Hrrmg8ViW9ycL-EX" target="_blank" className="mt-2 inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-500">
+            10 Minute Yoga Nidra | Full Nervous System Massage <Link size={16} />
+            </a>
+         
+            <a href="https://youtu.be/8mM5Oks8yZc?si=ChG3RdqzKaUcjhlc" target="_blank" className="ml-2 mt-2 inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-500">
+            30 Minute Yoga Nidra For Deep Rest <Link size={16} />
+            </a>
+
+            <a href="https://youtu.be/Ap6AkhvTKfM?si=OgG3-v_O2a399NFL" target="_blank" className="ml-2 mt-2 inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-500">
+            
+            Yoga Nidra Singing Bowls | Sound bath for total calm & deep meditation<Link size={16} />
+            </a>
+            </div>
+        <div className="mt-3 rounded-xl border border-slate-700 bg-slate-800 p-4 text-slate-300">
+            <h2 className="text-xl font-semibold">
                 Ліванда
             </h2>
             <p>Медитації для зцілення. Рекомендовано в навушниках, лежачи.</p>

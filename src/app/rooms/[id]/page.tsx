@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 
 const content: Record<string, {title:string, body:string}> = {
   happiness: { title: "Генератор Щастя", body: "Тут скоро з’явиться промінь радості 💛" },
+  throughEarth: { title: "Кімната крізь Землю", body: "Тут відкриється портал до протилежної частини світу 🌍" },
   bot: { title: "Бот-помічник", body: "Тут житиме твій космічний друг 🤖" },
   compass: { title: "Космічний Компас", body: "Тут відкриється зоряна навігація 🌌" },
   meditation: { title: "Зал для медитацій", body: "Тут будуть ролики Нідра-йоги 🧘" },
