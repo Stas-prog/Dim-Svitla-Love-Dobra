@@ -20,11 +20,22 @@ export default function Navbar() {
   const linkClass = (path: string) => {
     const href = route(path);
 
-    return `block px-3 py-2 rounded hover:text-sky-400 transition ${
-      pathname === href
-        ? "text-sky-400 font-semibold"
-        : "text-white"
-    }`;
+    return `
+      flex
+      items-center
+      rounded-full
+      px-4
+      py-2
+      text-sm
+      font-medium
+      transition-all
+      duration-300
+      ${
+        pathname === href
+          ? "bg-sky-500/15 text-sky-300 shadow-sm"
+          : "text-white hover:bg-white/10 hover:text-sky-300"
+      }
+    `;
   };
 
   const links = [
@@ -54,35 +65,86 @@ export default function Navbar() {
     },
   ];
 
-  const otherLocale = locale === "uk" ? "en" : "uk";
+  const otherLocale =
+    locale === "uk" ? "en" : "uk";
 
   const switchHref =
-  "/" +
-  otherLocale +
-  pathname.replace(/^\/(uk|en)/, "");
+    "/" +
+    otherLocale +
+    pathname.replace(/^\/(uk|en)/, "");
 
   return (
-    <nav className="w-full bg-blue-900 text-white shadow-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14">
+    <nav
+      className="
+        sticky
+        top-0
+        z-50
+        w-full
+        bg-gradient-to-b
+        from-blue-900
+        via-[#1b4aa8]
+        to-[#173b88]
+        border-b
+        border-white/10
+        shadow-xl
+        backdrop-blur-md
+        text-white
+      "
+    >
+      <div
+        className="
+          mx-auto
+          max-w-7xl
+          px-4
+          sm:px-6
+          lg:px-8
+        "
+      >
+        <div className="flex h-20 items-center justify-between">
 
           <Link
             href={route("/")}
-            className="text-xl font-bold text-sky-400"
+            className="
+              text-3xl
+              font-bold
+              text-sky-300
+              drop-shadow-lg
+              transition-all
+              duration-300
+              hover:scale-110
+              hover:text-cyan-300
+            "
           >
             🏠
           </Link>
 
-          <div className="hidden md:flex items-center gap-2">
-  <Link
-    href={switchHref}
-    className="rounded-lg border border-sky-500 px-3 py-1 text-sm font-semibold text-sky-300 hover:bg-sky-700 transition"
-  >
-    {locale === "uk" ? "EN" : "UK"}
-  </Link>
-</div>
+          <div className="hidden md:flex items-center gap-3">
 
-          <div className="hidden md:flex gap-6">
+            <Link
+              href={switchHref}
+              className="
+                rounded-xl
+                border
+                border-sky-500/60
+                bg-sky-500/10
+                px-4
+                py-2
+                text-sm
+                font-semibold
+                text-sky-200
+                transition-all
+                duration-300
+                hover:bg-sky-500/20
+                hover:text-white
+              "
+            >
+              {locale === "uk" ? "EN" : "UK"}
+            </Link>
+
+          </div>
+
+          <div className="hidden md:flex items-center gap-8">
+
             {links.map((link) => (
               <Link
                 key={link.href}
@@ -92,12 +154,20 @@ export default function Navbar() {
                 {link.label}
               </Link>
             ))}
+
           </div>
 
           <div className="md:hidden">
+
             <button
               onClick={() => setOpen(!open)}
-              className="p-2 rounded-md hover:bg-slate-800"
+              className="
+                rounded-xl
+                p-2
+                transition-all
+                duration-300
+                hover:bg-white/10
+              "
             >
               <svg
                 className="h-6 w-6"
@@ -105,8 +175,7 @@ export default function Navbar() {
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
-              >
-                {open ? (
+              >                {open ? (
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -123,13 +192,27 @@ export default function Navbar() {
                 )}
               </svg>
             </button>
+
           </div>
 
         </div>
       </div>
 
       {open && (
-        <div className="md:hidden px-2 pt-2 pb-3 space-y-1 bg-slate-800">
+        <div
+          className="
+            md:hidden
+            rounded-b-2xl
+            border-t
+            border-white/10
+            bg-slate-900/95
+            backdrop-blur-md
+            px-3
+            pt-3
+            pb-4
+            space-y-2
+          "
+        >
           {links.map((link) => (
             <Link
               key={link.href}
@@ -140,13 +223,30 @@ export default function Navbar() {
               {link.label}
             </Link>
           ))}
+
           <Link
-  href={switchHref}
-  className="block px-3 py-2 rounded text-sky-300 hover:text-sky-400"
-  onClick={() => setOpen(false)}
->
-  🌐 {locale === "uk" ? "English" : "Українська"}
-</Link>
+            href={switchHref}
+            onClick={() => setOpen(false)}
+            className="
+              flex
+              items-center
+              rounded-xl
+              border
+              border-sky-500/50
+              bg-sky-500/10
+              px-4
+              py-2
+              text-sm
+              font-semibold
+              text-sky-200
+              transition-all
+              duration-300
+              hover:bg-sky-500/20
+              hover:text-white
+            "
+          >
+            🌐 {locale === "uk" ? "English" : "Українська"}
+          </Link>
         </div>
       )}
     </nav>

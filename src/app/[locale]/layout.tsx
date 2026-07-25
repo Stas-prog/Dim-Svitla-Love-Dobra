@@ -30,7 +30,7 @@ export default async function LocaleLayout({
         {children}
       </main>
 
-      <Footer locale={locale} />
+      <Footer locale={locale} variant="dark"/>
     </MessagesProvider>
   );
 }

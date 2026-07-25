@@ -183,7 +183,7 @@ unity: {
 
 bottom: {
   text:
-    "Forward to the Absolute • With love ♥️☀️",
+    "Forward to the Absolute • With love",
 },
 },
 

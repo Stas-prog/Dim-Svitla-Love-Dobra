@@ -31,7 +31,7 @@ export default function Hero({ locale }: Props) {
 
       <div className="mt-20 flex justify-center">
         <Image
-          src="/love.png"
+          src="/og-image.jpg"
           alt="Love"
           width={1024}
           height={1024}

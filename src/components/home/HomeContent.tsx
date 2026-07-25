@@ -52,7 +52,8 @@ export default function HomeContent({
               bottom-0
               -translate-x-1/2
               h-40
-              w-[500px]
+              w-full
+              max-w-md
               rounded-full
               bg-yellow-200/20
               blur-3xl
@@ -60,7 +61,7 @@ export default function HomeContent({
             "
           />
 
-          <BottomMessage />
+          <BottomMessage dict={dict} />
         </div>
       </div>
     </div>
