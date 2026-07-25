@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import Vision from '@/components/Vision';
+import Vision from '@/components/vision/Vision';
 import './vision-theme.css'; // <— додаємо
 
 export default function VisionPage() {

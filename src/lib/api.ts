@@ -1,4 +1,4 @@
-import type { HouseState, GuestbookEntry, BotSnapshot } from "./types";
+import type { HouseState, GuestbookEntry, BotSnapshot } from "../types/types";
 
 export async function fetchHouse(): Promise<HouseState | {}> {
     const r = await fetch("/api/house", { cache: "no-store" });

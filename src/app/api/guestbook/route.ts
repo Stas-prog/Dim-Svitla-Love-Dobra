@@ -4,7 +4,7 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
-import type { GuestbookEntry } from "@/lib/types";
+import type { GuestbookEntry } from "@/types/types";
 
 export async function GET() {
     const db = await getDb();
