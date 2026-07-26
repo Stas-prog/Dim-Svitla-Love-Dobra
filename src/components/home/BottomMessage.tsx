@@ -14,9 +14,15 @@ export default function BottomMessage({ dict }: Props) {
     <section className="py-16 text-center">
       <div className="mx-auto max-w-xl">
 
-        <div className="mb-6 h-px bg-gradient-to-r from-transparent via-amber-300/60 to-transparent" />
+        {/* <div className="mb-6 h-px bg-gradient-to-r from-transparent via-amber-300/60 to-transparent" /> */}
 
-        <p className="text-lg text-slate-500 tracking-wide">
+        <p className="
+              text-sm
+              sm:text-xl
+              leading-9
+              md:leading-10
+              text-slate-500 
+              tracking-wide">
           {dict.home.bottom.text}
         </p>
 
