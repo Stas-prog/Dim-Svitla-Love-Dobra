@@ -45,7 +45,7 @@ export default function HomeContent({
         />
 
         <div className="relative">
-          <div
+          {/* <div
             className="
               absolute
               left-1/2
@@ -59,7 +59,7 @@ export default function HomeContent({
               blur-3xl
               pointer-events-none
             "
-          />
+          /> */}
 
           <BottomMessage dict={dict} />
         </div>

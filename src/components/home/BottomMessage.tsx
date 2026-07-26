@@ -21,7 +21,7 @@ export default function BottomMessage({ dict }: Props) {
               sm:text-xl
               leading-9
               md:leading-10
-              text-slate-500 
+              text-pink-400
               tracking-wide">
           {dict.home.bottom.text}
         </p>
