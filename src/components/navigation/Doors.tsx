@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import PortalModal from "@/components/ui/PortalModal";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useMessages } from "@/messages/useMessages";
 
 /** Ключ у localStorage з TTL (1 день), щоб «не показувати двері знову» */
 const LS_KEY = "doorEnteredUntil";
@@ -44,6 +47,20 @@ export default function Doors() {
   const [showText, setShowText] = useState(false);
   // Чи пам’ятати вхід на 1 день
   const [remember, setRemember] = useState(true);
+
+  const t = useMessages();
+
+  const pathname = usePathname();
+
+  const locale = pathname.split("/")[1] || "uk";
+
+  const otherLocale =
+  locale === "uk" ? "en" : "uk";
+
+  const switchHref =
+  "/" +
+  otherLocale +
+  pathname.replace(/^\/(uk|en)/, "");
 
   // Ініціалізація лише на клієнті
   useEffect(() => {
@@ -88,7 +105,7 @@ export default function Doors() {
         <div className="flex flex-col h-[80vh] sm:h-[95vh]">
           {/* верхній бар */}
           <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-slate-700">
-            <div className="text-xs sm:text-xl text-violet-700">✨ &nbsp; Дім Світла</div>
+            <div className="text-xs sm:text-xl text-violet-700">{t.doors.house}</div>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 text-xs sm:text-sm text-slate-300 select-none">
                 <input
@@ -97,14 +114,32 @@ export default function Doors() {
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
                 />
-                 відкриті на добу
+                 {t.doors.remember}
               </label>
-              <button
+              {/* <button
                 onClick={handleEnter}
                 className="px-3 sm:px-4 py-1.5 rounded-lg bg-emerald-500 text-black text-sm font-medium hover:bg-emerald-400 transition"
               >
-                Увійти
-              </button>
+                {t.doors.enter}
+              </button> */}
+              <Link
+                  href={switchHref}
+                  className="
+                    rounded-lg
+                    border
+                    border-sky-500/60
+                    bg-sky-500/10
+                    px-3
+                    py-1.5
+                    text-sm
+                    text-sky-200
+                    transition
+                    hover:bg-sky-500/20
+                    hover:text-white
+                  "
+                >
+                {locale === "uk" ? t.doors.en : t.doors.uk}
+              </Link>
             </div>
           </div>
 
@@ -129,7 +164,7 @@ export default function Doors() {
             {/* контент поверх дверей */}
             <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-3">
                 <section className="w-2/3 sm:w-1/2 bg-gray-300/10 backdrop-blur-md rounded-2xl border border-gray-500/30 p-6 sm:p-8 shadow-lg">
-              <h1 className="text-2xl sm:text-3xl text-blue-600 font-bold mb-7">Двері до Дому Світла</h1>
+              <h1 className="text-2xl sm:text-3xl text-blue-600 font-bold mb-7">{t.doors.title}</h1>
               {/* <p className="text-yellow-400 p-3 rounded-md bg-blue-600 text-sm sm:text-base max-w-md">
                 Ти входиш у простір тепла, любові й ясності. Тут кожен шукає правду — і не боїться її світла.
               </p> */}
@@ -143,13 +178,13 @@ export default function Doors() {
                   onClick={handleShowText}
                   className="px-3 py-2 mb-4 rounded-lg bg-sky-600 hover:bg-sky-500 transition text-amber-800 text-sm font-normal sm:text-base"
                 >
-                  Прочитай перед тим, як увійти
+                  {t.doors.read}
                 </button>
                 <button
                   onClick={handleEnter}
                   className="px-5 py-2 rounded-lg  bg-emerald-500 text-black font-semibold hover:bg-emerald-400 transition text-sm sm:text-base"
                 >
-                  Увійти
+                  {t.doors.enter}
                 </button>
               </div>
               </section>
@@ -161,17 +196,16 @@ export default function Doors() {
       {/* Модалка з текстом на дверях */}
       <PortalModal open={showText}>
         <div className="p-4 sm:p-6">
-          <h2 className="text-lg sm:text-xl text-lime-600 font-semibold mb-3">Напис на дверях</h2>
+          <h2 className="text-lg sm:text-xl text-lime-600 font-semibold mb-3">{t.doors.inscription}</h2>
           <div className="space-y-3 text-pink-300 text-sm sm:text-base leading-relaxed">
-            <p>
-              Ти входиш у Дім Світла. Тут панують спокій, гідність і ясність.
-              Кожен, хто ступає через ці двері, шукає правду — і не боїться її світла.
-            </p>
+            <p>{t.doors.text.p1}</p>
+
             <p className="font-semibold">
-              Світло не засуджує, воно освітлює. Коли бачиш чітко — вибір стає простішим.
+              {t.doors.text.p2}
             </p>
+
             <p>
-              “Пізнай себе  -  і знайдеш у собі Всесвіт”. Ми лише підсвічуємо дорогу і якщо тобі треба, то крок робиш ти.
+              {t.doors.text.p3}
             </p>
           </div>
           <div className="mt-5 flex justify-between">
@@ -180,13 +214,13 @@ export default function Doors() {
               className="px-3 py-2 rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800 transition text-sm"
               title="Показувати двері знову"
             >
-              Скинути пам’ять дверей
+              {t.doors.reset}
             </button>
             <button
               onClick={() => setShowText(false)}
               className="px-4 py-2 rounded-lg bg-emerald-500 text-black hover:bg-emerald-400 transition text-sm sm:text-base"
             >
-              До входу
+              {t.doors.back}
             </button>
           </div>
         </div>

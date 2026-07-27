@@ -51,6 +51,41 @@ nav: {
   rooms: "Rooms",
 },
 
+doors: {
+  house: "☀️ House of Light",
+
+  remember: "Keep doors open for one day",
+
+  enter: "Enter",
+
+  title: "Doors to the House of Light",
+
+  read: "Read before entering",
+
+  inscription: "Inscription on the Doors",
+
+  reset: "Reset door memory",
+
+  back: "Back to entrance",
+
+  language: "Language",
+
+  uk: "🇺🇦 Українська",
+
+  en: "🇬🇧 English",
+
+  text: {
+    p1:
+      "You are entering the House of Light. Peace, dignity and clarity live here. Everyone who steps through these doors seeks truth and is not afraid of its light.",
+
+    p2:
+      "Light does not judge — it illuminates. When you see clearly, the right choice becomes easier.",
+
+    p3:
+      "“Know yourself and you will discover the Universe within.” We simply illuminate the path. The step is yours.",
+  },
+},
+
 about: {
   title: "About",
 
