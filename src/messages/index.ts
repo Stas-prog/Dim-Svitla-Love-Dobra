@@ -7,3 +7,7 @@ export const messages = {
 };
 
 export type Locale = keyof typeof messages;
+
+export async function getMessages(locale: Locale) {
+  return messages[locale];
+}

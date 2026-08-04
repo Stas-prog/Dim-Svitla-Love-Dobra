@@ -241,7 +241,7 @@ rooms: {
   },
 
   bot: {
-    title: "Assistant Bot",
+    title: "Assistant to the House of Light",
     desc: "Home of our smart friend 🤖",
   },
 
@@ -351,6 +351,70 @@ meditation: {
     description:
       "Online Reiki school with support for multiple languages.",
   },
+},
+
+assistant: {
+  hero: {
+    badge: "🤖 House Guide",
+    title: "Welcome. How can I help you today?",
+    subtitle:
+      "I'm here to help.",
+  },
+ 
+  cards: {
+    rooms: {
+      title: "🏛 Rooms",
+      description:
+        "I'll help you find the right room and explain what it offers.",
+    },
+
+    academy: {
+      title: "🎓 Academy",
+      description:
+        "Learn programming, understand code and build your own projects step by step.",
+    },
+
+    meditation: {
+      title: "🧘 Meditation",
+      description:
+        "Find practices for relaxation, harmony and restoring your energy.",
+    },
+
+    workshop: {
+      title: "💡 Idea Workshop",
+      description:
+        "Let's create new projects together, find solutions and develop creative ideas.",
+    },
+  },
+
+  button: "❤️ Start Chat",
+
+  action: {
+    title: "✨ Ready to Help",
+
+    description:
+      "If you haven't found the right direction or simply want to talk, press the button below.",
+
+    button: "❤️ Start Chat",
+  },
+},
+
+  assistantChat: {
+  title: "House Assistant",
+  description:
+    "Welcome! Soon I'll be able to guide you through the House of Light, explain projects, help with programming and simply talk with you.",
+  greeting: "👋 Hello! I'm the House Assistant. How can I help you?",
+  placeholder: "Type a message...",
+  send: "Send",
+  you: "🙂 You",
+  assistant: "🤖 Assistant",
+  thinking: "Thinking...",
+  temporaryReply: "✨ I heard you. Soon I'll be able to answer for real.",
+   welcome:
+    "👋 Hello! I'm the House Assistant. How can I help you?",
+
+  demoReply:
+    "✨ I heard you. I'm still learning, but soon I'll be able to answer for real.",
 },
 };
 
