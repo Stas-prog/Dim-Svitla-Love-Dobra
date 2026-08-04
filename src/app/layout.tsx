@@ -25,28 +25,21 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "House of Light, Love & Goodness",
-    description: "Unity of faiths and peoples. One Creator for all.",
+    description:
+      "Unity of faiths and peoples. One Creator for all.",
     images: [
       "https://dim-svitla-love-dobra.vercel.app/og-image.jpg",
     ],
   },
 };
 
-type Props = Readonly<{
-  children: React.ReactNode;
-  params: Promise<{
-    locale: string;
-  }>;
-}>;
-
-export default async function RootLayout({
+export default function RootLayout({
   children,
-  params,
-}: Props) {
-  const { locale } = await params;
-
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang={locale}>
+    <html suppressHydrationWarning>
       <body className="overflow-x-hidden relative">
         {children}
       </body>

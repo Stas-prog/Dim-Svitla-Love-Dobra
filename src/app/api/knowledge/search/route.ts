@@ -3,15 +3,23 @@ import { NextResponse } from "next/server";
 import { searchKnowledge } from "@/lib/houseBrain";
 
 export async function POST(req: Request) {
-  const body = await req.json();
+    const body = await req.json();
 
-  const query = body.query?.trim();
+    const query = body.query?.trim();
 
-  if (!query) {
-    return NextResponse.json([]);
-  }
+    const locale =
+        body.locale === "en"
+            ? "en"
+            : "uk";
 
-  const result = await searchKnowledge(query);
+    if (!query) {
+        return NextResponse.json([]);
+    }
 
-  return NextResponse.json(result);
+    const result = await searchKnowledge(
+        query,
+        locale
+    );
+
+    return NextResponse.json(result);
 }
