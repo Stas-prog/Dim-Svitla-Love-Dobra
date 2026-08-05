@@ -26,6 +26,8 @@ export default function AssistantChat({
         },
     ]);
 
+    const [isLoading, setIsLoading] = useState(false);
+
    async function sendMessage(text: string) {
     if (!text.trim()) return;
 
@@ -38,6 +40,7 @@ export default function AssistantChat({
 ];
 
     setMessages(history);
+    setIsLoading(true);
 
     const response = await fetch("/api/assistant/chat", {
         method: "POST",
@@ -52,6 +55,7 @@ export default function AssistantChat({
 
     const data = await response.json();
 
+    setIsLoading(false);
     setMessages([
         ...history,
         {
@@ -65,7 +69,7 @@ export default function AssistantChat({
 
         <>
 
-            <ChatWindow messages={messages} />
+            <ChatWindow messages={messages} isLoading={isLoading} />
 
             <ChatInput onSend={sendMessage} />
 

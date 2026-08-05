@@ -1,5 +1,9 @@
 export type Locale = "uk" | "en";
 
+export type SearchResult =
+    | KnowledgeDoc
+    | null;
+
 export type KnowledgeCategory =
   | "room"
   | "project"
@@ -29,3 +33,4 @@ export interface KnowledgeDoc {
 
   updatedAt: string;
 }
+

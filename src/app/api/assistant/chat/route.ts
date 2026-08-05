@@ -1,43 +1,44 @@
 import { NextResponse } from "next/server";
 
-import {openai} from "@/lib/openai";
-import { SYSTEM_PROMPT } from "@/lib/houseBrain/systemPrompt";
-import { searchKnowledge } from "@/lib/houseBrain/search";
+import { openai } from "@/lib/openai";
+import { buildSystemPrompt } from "@/lib/houseBrain/middleware";
+
+type ChatMessage = {
+    role: "user" | "assistant";
+    text: string;
+};
 
 export async function POST(req: Request) {
+
     let locale: "uk" | "en" = "uk";
 
     try {
 
         const body = await req.json();
 
-        locale = body.locale === "en"
-            ? "en"
-            : "uk";
+        locale =
+            body.locale === "en"
+                ? "en"
+                : "uk";
 
-        const history = Array.isArray(body.history)
-            ? body.history
-            : [];
+        const history: ChatMessage[] =
+            Array.isArray(body.history)
+                ? body.history
+                : [];
 
-        // Беремо тільки останні повідомлення
-        const recentHistory = history.slice(-12);
+        const recentHistory =
+            history.slice(-12);
 
-        const lastUserMessage =
-            [...recentHistory]
-                .reverse()
-                .find((m) => m.role === "user")?.text ?? "";
+        const systemPrompt =
+            buildSystemPrompt();
 
-        const knowledge = await searchKnowledge(lastUserMessage, locale);
+        const conversation = recentHistory.map(message => ({
 
-        const conversation = recentHistory.map(
-            (item: {
-                role: "user" | "assistant";
-                text: string;
-            }) => ({
-                role: item.role,
-                content: item.text,
-            })
-        );
+            role: message.role,
+
+            content: message.text,
+
+        }));
 
         const completion =
             await openai.chat.completions.create({
@@ -48,13 +49,7 @@ export async function POST(req: Request) {
 
                     {
                         role: "system",
-                        content: SYSTEM_PROMPT,
-                    },
-
-                    {
-                        role: "system",
-                        content:
-                            `Knowledge:\n${knowledge}`,
+                        content: systemPrompt,
                     },
 
                     ...conversation,
@@ -64,31 +59,38 @@ export async function POST(req: Request) {
             });
 
         const answer =
-            completion.choices[0].message.content ??
+            completion.choices[0].message.content?.trim()
+            ||
             (
                 locale === "en"
-                    ? "I don't know."
-                    : "Я не знаю."
+                    ? "I don't know yet."
+                    : "Я поки що цього не знаю."
             );
 
         return NextResponse.json({
             answer,
         });
 
-    } catch (err) {
+    } catch (error) {
 
-        console.error(err);
+        console.error(error);
 
-        return NextResponse.json(
-            {
-                answer:
-                    locale === "en"
-                        ? "House Assistant is temporarily unavailable."
-                        : "Помічник Дому Світла тимчасово недоступний.",
-            },
-            {
-                status: 500,
-            }
-        );
+        return NextResponse.json({
+
+            answer:
+
+                locale === "en"
+
+                    ? "House Assistant is temporarily unavailable."
+
+                    : "Помічник Дому Світла тимчасово недоступний.",
+
+        }, {
+
+            status: 500,
+
+        });
+
     }
+
 }

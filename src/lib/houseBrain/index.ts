@@ -2,6 +2,9 @@ export * from "./types";
 
 export * from "./knowledge";
 
-export * from "./navigation";
+export * from "./houseContext";
 
-export * from "./search";
+export * from "./lightCompass";
+
+export * from "./middleware";
+

@@ -19,13 +19,21 @@ export default function ChatInput({
     if (!text.trim()) return;
 
     onSend(text);
-
     setText("");
   }
 
   return (
-    <div className="flex mt-4 gap-4">
-
+    <div
+      className="
+        mt-4
+        flex
+        flex-col
+        gap-3
+        md:flex-row
+        md:items-end
+        md:gap-4
+      "
+    >
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -36,6 +44,7 @@ export default function ChatInput({
         }}
         placeholder={t.assistantChat.placeholder}
         className="
+          w-full
           flex-1
           rounded-2xl
           border
@@ -45,12 +54,17 @@ export default function ChatInput({
           py-4
           text-white
           outline-none
+          transition
+          focus:border-sky-400
+          focus:ring-2
+          focus:ring-sky-500/20
         "
       />
 
       <button
         onClick={send}
         className="
+          w-full
           rounded-2xl
           bg-sky-600
           px-6
@@ -59,11 +73,13 @@ export default function ChatInput({
           text-white
           transition
           hover:bg-sky-500
+          active:scale-95
+          md:w-auto
+          md:min-w-[170px]
         "
       >
         {t.assistantChat.send}
       </button>
-
     </div>
   );
 }

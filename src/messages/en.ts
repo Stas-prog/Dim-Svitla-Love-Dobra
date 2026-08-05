@@ -406,9 +406,9 @@ assistant: {
   greeting: "👋 Hello! I'm the House Assistant. How can I help you?",
   placeholder: "Type a message...",
   send: "Send",
-  you: "🙂 You",
-  assistant: "🤖 Assistant",
-  thinking: "Thinking...",
+  you: "You",
+  assistant: "Assistant",
+  thinking: "Assistant is thinking...",
   temporaryReply: "✨ I heard you. Soon I'll be able to answer for real.",
    welcome:
     "👋 Hello! I'm the House Assistant. How can I help you?",

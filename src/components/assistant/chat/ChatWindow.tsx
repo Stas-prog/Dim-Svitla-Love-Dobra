@@ -9,10 +9,12 @@ type Message = {
 
 type Props = {
   messages: Message[];
+  isLoading: boolean;
 };
 
 export default function ChatWindow({
   messages,
+  isLoading,
 }: Props) {
   return (
     <div
@@ -22,8 +24,17 @@ export default function ChatWindow({
         border
         border-sky-500/20
         bg-slate-900/40
-        p-6
-        space-y-4
+
+        p-4
+        sm:p-6
+        md:p-8
+
+        space-y-5
+
+        max-h-[65vh]
+        overflow-y-auto
+
+        scroll-smooth
       "
     >
       {messages.map((message, index) => (
@@ -33,6 +44,13 @@ export default function ChatWindow({
           text={message.text}
         />
       ))}
+      {isLoading && (
+         <ChatMessage
+             role="assistant"
+             text="● ● ●"
+             typing
+         />
+      )}
     </div>
   );
-}
+}   
